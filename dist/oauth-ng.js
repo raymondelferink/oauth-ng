@@ -348,11 +348,24 @@ directives.directive('oauth', function(AccessToken, Endpoint, Profile, $location
 
     var initProfile = function(scope) {
       var token = AccessToken.get();
-
-      if (token && token.access_token && scope.profileUri) {
+      
+      if (! scope.profileUri){
+          return true;
+      }
+      if (token && token.access_token) {
         Profile.find(scope.profileUri).success(function(response) {
-          scope.profile = response
-        })
+          if (! response || !response.user_code){
+              scope.profile = null;
+              scope.logout();
+          } else {
+             scope.profile = response;
+          }
+        }).error( function(response){
+            scope.profile = null;
+            scope.logout();
+        });
+      } else if (scope.show == 'logged-in') {
+            scope.logout();
       }
     };
 
