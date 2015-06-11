@@ -1,4 +1,4 @@
-/* oauth-ng - v0.3.2 - 2014-11-16 */
+/* oauth-ng - v0.3.0 - 2015-06-11 */
 
 'use strict';
 
@@ -20,7 +20,7 @@ angular.module('oauth').config(['$locationProvider','$httpProvider',
 
 var accessTokenService = angular.module('oauth.accessToken', ['ngStorage']);
 
-accessTokenService.factory('AccessToken', function($rootScope, $location, $sessionStorage, $interval){
+accessTokenService.factory('AccessToken', function($rootScope, $location, $localStorage, $interval){
 
     var service = {
             token: null
@@ -40,7 +40,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $sessi
     /**
      * Sets and returns the access token. It tries (in order) the following strategies:
      * - takes the token from the fragment URI
-     * - takes the token from the sessionStorage
+     * - takes the token from the localStorage
      */
     service.set = function(){
         this.setTokenFromString($location.hash());
@@ -58,7 +58,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $sessi
      * @returns {null}
      */
     service.destroy = function(){
-        delete $sessionStorage.token;
+        delete $localStorage.token;
         this.token = null;
         return this.token;
     };
@@ -93,11 +93,11 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $sessi
      * * * * * * * * * */
    
     /**
-     * Set the access token from the sessionStorage.
+     * Set the access token from the localStorage.
      */
     var setTokenFromSession = function(){
-        if($sessionStorage.token){
-            var params = $sessionStorage.token;
+        if($localStorage.token){
+            var params = $localStorage.token;
             params.expires_at = new Date(params.expires_at);
             setToken(params);
         }
@@ -141,7 +141,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $sessi
      * Save the access token into the session
      */
     var setTokenInSession = function(){
-        $sessionStorage.token = service.token;
+        $localStorage.token = service.token;
     };
 
     /**
@@ -204,14 +204,15 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
         state = (params.state) ? encodeURIComponent(params.state) : '',
         authPathHasQuery = (params.authorizePath.indexOf('?') == -1) ? false : true,
         appendChar = (authPathHasQuery) ? '&' : '?';    //if authorizePath has ? already append OAuth2 params
-
+        accessType = (params.accessType) ? params.accessType : '';
     url = params.site +
           params.authorizePath +
           appendChar + 'response_type='+params.responseType+'&' +
           'client_id=' + encodeURIComponent(params.clientId) + '&' +
           'redirect_uri=' + encodeURIComponent(params.redirectUri) + '&' +
           'scope=' + oAuthScope + '&' +
-          'state=' + state;
+          'state=' + state + '&' +
+          'access_type='+ accessType;
 
     return url;
   };
@@ -273,12 +274,12 @@ profileClient.factory('Profile', function($http, AccessToken, $rootScope) {
 
 var interceptorService = angular.module('oauth.interceptor', []);
 
-interceptorService.factory('ExpiredInterceptor', function ($rootScope, $q, $sessionStorage) {
+interceptorService.factory('ExpiredInterceptor', function ($rootScope, $q, $localStorage) {
 
   var service = {};
 
   service.request = function(config) {
-    var token = $sessionStorage.token;
+    var token = $localStorage.token;
 
     if (token && expired(token))
       $rootScope.$broadcast('oauth:expired', token);
@@ -312,7 +313,8 @@ directives.directive('oauth', function(AccessToken, Endpoint, Profile, $location
       template: '@',      // (optional) template to render (e.g bower_components/oauth-ng/dist/views/templates/default.html)
       text: '@',          // (optional) login text
       authorizePath: '@', // (optional) authorization url
-      state: '@'          // (optional) An arbitrary unique string created by your app to guard against Cross-site Request Forgery
+      state: '@',          // (optional) An arbitrary unique string created by your app to guard against Cross-site Request Forgery
+      accessType: '@'
     }
   };
 
@@ -331,12 +333,15 @@ directives.directive('oauth', function(AccessToken, Endpoint, Profile, $location
     };
 
     var initAttributes = function() {
+        console.log('scope.authorizePath', scope.authorizePath);
       scope.authorizePath = scope.authorizePath || '/oauth/authorize';
       scope.tokenPath     = scope.tokenPath     || '/oauth/token';
       scope.template      = scope.template      || 'bower_components/oauth-ng/dist/views/templates/default.html';
       scope.text          = scope.text          || 'Sign In';
       scope.state         = scope.state         || undefined;
       scope.scope         = scope.scope         || undefined;
+      scope.accessType    = scope.accessType    || undefined;
+        console.log('scope.authorizePath', scope.authorizePath);
     };
 
     var compile = function() {
@@ -348,24 +353,30 @@ directives.directive('oauth', function(AccessToken, Endpoint, Profile, $location
 
     var initProfile = function(scope) {
       var token = AccessToken.get();
-      
+      console.log('in de initProfile');
       if (! scope.profileUri){
           return true;
       }
       if (token && token.access_token) {
         Profile.find(scope.profileUri).success(function(response) {
           if (! response || !response.user_code){
+              console.log('the profile call succeeded but the response was empty', response);
               scope.profile = null;
               scope.logout();
           } else {
-             scope.profile = response;
+              console.log('the profile call succeeded and the response was NOT empty', response);
+              scope.profile = response;
           }
         }).error( function(response){
+            console.log('the profile call failed', response);
             scope.profile = null;
             scope.logout();
         });
       } else if (scope.show == 'logged-in') {
+            console.log('in de initProfile nog steeds token.access_token bestond niet');
             scope.logout();
+      } else {
+          console.log('lang en breed uitgelogd');
       }
     };
 
