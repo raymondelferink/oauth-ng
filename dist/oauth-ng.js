@@ -204,7 +204,8 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
         state = (params.state) ? encodeURIComponent(params.state) : '',
         authPathHasQuery = (params.authorizePath.indexOf('?') == -1) ? false : true,
         appendChar = (authPathHasQuery) ? '&' : '?',    //if authorizePath has ? already append OAuth2 params
-        accessType = (params.accessType) ? params.accessType : '';
+        accessType = (params.accessType) ? params.accessType : '',
+        approvalPrompt = (params.approvalPrompt)? true:false;
     url = params.site +
           params.authorizePath +
           appendChar + 'response_type='+params.responseType+'&' +
@@ -213,6 +214,7 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
           'scope=' + oAuthScope + '&' +
           'state=' + state + '&' +
           'access_type='+ accessType;
+    if(approvalPrompt) url += '&approval_prompt=force';
 
     return url;
   };
@@ -314,7 +316,8 @@ directives.directive('oauth', function(AccessToken, Endpoint, Profile, $location
       text: '@',          // (optional) login text
       authorizePath: '@', // (optional) authorization url
       state: '@',          // (optional) An arbitrary unique string created by your app to guard against Cross-site Request Forgery
-      accessType: '@'
+      accessType: '@',
+      approvalPrompt: '@'
     }
   };
 
@@ -341,6 +344,7 @@ directives.directive('oauth', function(AccessToken, Endpoint, Profile, $location
       scope.state         = scope.state         || undefined;
       scope.scope         = scope.scope         || undefined;
       scope.accessType    = scope.accessType    || undefined;
+      scope.approvalPrompt = (scope.approvalPrompt === 'force')?true:false;
         console.log('scope.authorizePath', scope.authorizePath);
     };
 
