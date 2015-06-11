@@ -203,7 +203,7 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
     var oAuthScope = (params.scope) ? params.scope : '',
         state = (params.state) ? encodeURIComponent(params.state) : '',
         authPathHasQuery = (params.authorizePath.indexOf('?') == -1) ? false : true,
-        appendChar = (authPathHasQuery) ? '&' : '?';    //if authorizePath has ? already append OAuth2 params
+        appendChar = (authPathHasQuery) ? '&' : '?',    //if authorizePath has ? already append OAuth2 params
         accessType = (params.accessType) ? params.accessType : '';
     url = params.site +
           params.authorizePath +
