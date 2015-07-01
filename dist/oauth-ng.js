@@ -202,11 +202,17 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
   service.set = function(params) {
     var oAuthScope = (params.scope) ? params.scope : '',
         state = (params.state) ? encodeURIComponent(params.state) : '',
-        authPathHasQuery = (params.authorizePath.indexOf('?') == -1) ? false : true,
-        appendChar = (authPathHasQuery) ? '&' : '?',    //if authorizePath has ? already append OAuth2 params
         accessType = (params.accessType) ? params.accessType : '',
         approvalPrompt = (params.approvalPrompt)? true:false;
-    url = params.site +
+    if(params.fullsite){
+        authPathHasQuery = (params.fullsite.indexOf('?') == -1) ? false : true,
+        appendChar = (authPathHasQuery) ? '&' : '?',    //if authorizePath has ? already append OAuth2 params
+        url = params.fullsite + appendChar + 'state=' + state
+    }else{
+        var authPathHasQuery = (params.authorizePath.indexOf('?') == -1) ? false : true,
+            appendChar = (authPathHasQuery) ? '&' : '?';    //if authorizePath has ? already append OAuth2 params
+        
+        url = params.site +
           params.authorizePath +
           appendChar + 'response_type='+params.responseType+'&' +
           'client_id=' + encodeURIComponent(params.clientId) + '&' +
@@ -214,8 +220,8 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
           'scope=' + oAuthScope + '&' +
           'state=' + state + '&' +
           'access_type='+ accessType;
-    if(approvalPrompt) url += '&approval_prompt=force';
-
+        if(approvalPrompt) url += '&approval_prompt=force';
+    }
     return url;
   };
 
@@ -306,6 +312,7 @@ directives.directive('oauth', function(AccessToken, Endpoint, Profile, $location
     restrict: 'AE',
     replace: true,
     scope: {
+      fullsite: '@',      // (optional) this overrules all settings
       site: '@',          // (required) set the oauth server host (e.g. http://oauth.example.com)
       clientId: '@',      // (required) client id
       redirectUri: '@',   // (required) client redirect uri
@@ -337,6 +344,7 @@ directives.directive('oauth', function(AccessToken, Endpoint, Profile, $location
 
     var initAttributes = function() {
         console.log('scope.authorizePath', scope.authorizePath);
+      scope.fullsite      = scope.fullsite      || undefined;
       scope.authorizePath = scope.authorizePath || '/oauth/authorize';
       scope.tokenPath     = scope.tokenPath     || '/oauth/token';
       scope.template      = scope.template      || 'bower_components/oauth-ng/dist/views/templates/default.html';
