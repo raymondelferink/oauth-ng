@@ -282,25 +282,45 @@ profileClient.factory('Profile', function($http, AccessToken, $rootScope) {
 
 var interceptorService = angular.module('oauth.interceptor', []);
 
-interceptorService.factory('ExpiredInterceptor', function ($rootScope, $q, $localStorage) {
+interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$localStorage', 'AccessToken',
+    function ($rootScope, $q, $localStorage, AccessToken) {
 
-  var service = {};
+        var service = {};
 
-  service.request = function(config) {
-    var token = $localStorage.token;
+        service.response = function (response) {
+            if (response.status === 401) {
+                console.log("Response 401");
+                //todo: fire refresh procedure
+                AccessToken.destroy();
+                $rootScope.$broadcast('oauth:logout');
+            }
+            return response || $q.when(response);
+        };
+        service.responseError = function (rejection) {
+            if (rejection.status === 401) {
+                console.log("Response Error 401", rejection);
+                //todo: fire refresh procedure
+                AccessToken.destroy();
+                $rootScope.$broadcast('oauth:logout');
+                return false;
+            }
+            return $q.reject(rejection);
+        };
+        service.request = function (config) {
+            var token = $localStorage.token;
 
-    if (token && expired(token))
-      $rootScope.$broadcast('oauth:expired', token);
+            if (token && expired(token))
+                $rootScope.$broadcast('oauth:expired', token);
 
-    return config;
-  };
+            return config;
+        };
 
-  var expired = function(token) {
-    return (token && token.expires_at && new Date(token.expires_at) < new Date())
-  };
+        var expired = function (token) {
+            return (token && token.expires_at && new Date(token.expires_at) < new Date())
+        };
 
-  return service;
-});
+        return service;
+    }]);
 
 'use strict';
 
