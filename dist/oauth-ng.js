@@ -25,9 +25,12 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
     var service = {
             token: null
         },
-        oAuth2HashTokens = [ //per http://tools.ietf.org/html/rfc6749#section-4.2.2
-            'access_token', 'token_type', 'expires_in', 'scope', 'state',
-            'error','error_description'
+        oAuth2HashTokens = [ 
+            ////per http://tools.ietf.org/html/rfc6749#section-4.2.2
+            // and http://tools.ietf.org/html/rfc6749#section-4.1.4
+            'access_token', 'refresh_token', 'id_token',
+            'token_type', 'expires_in', 'scope', 'state',
+            'error', 'error_description'
         ];
 
     /**
@@ -86,6 +89,19 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
             $rootScope.$broadcast('oauth:login', service.token);
         }
     };
+    
+    /**
+     * Get the access token from a JSON struct and save it
+     * @param params
+     */
+    service.setTokenFromStruct = function(params){
+
+        if(params){
+            setToken(params);
+            setExpiresAt();
+            $rootScope.$broadcast('oauth:login', service.token);
+        }
+    };
 
    
     /* * * * * * * * * *
@@ -110,6 +126,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      * @returns {*|{}}
      */
     var setToken = function(params){
+        params = checkParams(params);
         service.token = service.token || {};      // init the token
         angular.extend(service.token, params);      // set the access token params
         setTokenInSession();                // save the token into the session
@@ -180,7 +197,20 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
 
         $location.hash(curHash);
     };
-
+    
+    /**
+     * Allow only the oAuth2 pieces in the params struct
+     * @param params
+     * $returns {{}}
+     */
+    
+    var checkParams = function(params){
+        var checkedParams = {};
+        angular.forEach(oAuth2HashTokens,function(hashKey){
+            if(params[hashKey]) checkedParams[hashKey] = params[hashKey];
+        });
+        return checkedParams;
+    };
 
     return service;
 });
