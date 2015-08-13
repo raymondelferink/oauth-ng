@@ -24,7 +24,8 @@ var accessTokenService = angular.module('oauth.accessToken', ['ngStorage']);
 accessTokenService.factory('AccessToken', function($rootScope, $location, $localStorage, $sessionStorage, $interval){
 
     var service = {
-            token: null
+            token: null,
+            refresh_semaphore: true
         },
         oAuth2HashTokens = [ 
             ////per http://tools.ietf.org/html/rfc6749#section-4.2.2
@@ -56,17 +57,48 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
 
         return this.token;
     };
+    
+    /**
+     * Returns the refresh semaphore.
+     */
+    service.getSemaphore = function(){
+        return this.refresh_semaphore;
+    };
 
+    /**
+     * Sets and returns the access token. It tries (in order) the following strategies:
+     * - takes the token from the fragment URI
+     * - takes the token from the localStorage
+     */
+    service.setSemaphore = function(sem){
+        if (arguments.length){
+            this.refresh_semaphore = sem;
+            setSemaphoreInSession(sem);
+            return sem;
+        }
+
+        //If hash is present in URL always use it, cuz its coming from oAuth2 provider redirect
+        if(null === service.refresh_semaphore){
+            var set_from_session = setSemaphoreFromSession();
+            if (!set_from_session){
+                this.refresh_semaphore = true;
+            }
+        }
+
+        return this.refresh_semaphore;
+    };
+    
     /**
      * Delete the access token and remove the session.
      * @returns {null}
      */
     service.destroy = function(){
         delete $localStorage.token;
+        delete $localStorage.refresh_semaphore;
         this.token = null;
-        return this.token;
+        this.refresh_semaphore = true;
+        return null;
     };
-
 
     /**
      * Tells if the access token is expired.
@@ -74,7 +106,6 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
     service.expired = function(){
         return (this.token && this.token.expires_at && this.token.expires_at<new Date());
     };
-
 
     /**
      * Get the access token from a string and save it
@@ -100,8 +131,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
             if(CryptoJS){
                 var key = $sessionStorage.encrypt_key;
                 delete $sessionStorage.encrypt_key;
-                console.log('setTokenFromStruct', params, key);
-                if(decrypt){
+                if (decrypt) {
                     var CryptoJSAesJson = {
                         stringify: function (cipherParams) {
                             var j = {ct: cipherParams.ciphertext.toString(CryptoJS.enc.Base64)};
@@ -110,7 +140,6 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
                             return JSON.stringify(j);
                         },
                         parse: function (jsonStr) {
-                            console.log(' gaat aan het parsen met ', jsonStr);
                             var j = JSON.parse(jsonStr);
                             var cipherParams = CryptoJS.lib.CipherParams.create({ciphertext: CryptoJS.enc.Base64.parse(j.ct)});
                             if (j.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(j.iv);
@@ -133,19 +162,18 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
 
     service.getEcryptionKey = function (prefix, resetkey) {
         if(!prefix) prefix = '';
-        if(!$sessionStorage.encrypt_key || resetkey){
+        if (!$sessionStorage.encrypt_key || resetkey) {
             var encrypt_key = '';
             var key_length = 20;
             var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
             var i;
-            for (i = 0; i < key_length ;i++){
+            for (i = 0; i < key_length ;i++) {
                 encrypt_key += chars[Math.round(Math.random() * 25)];
             }
             $sessionStorage.encrypt_key = prefix+encrypt_key;
         }
 
         return $sessionStorage.encrypt_key;
-
     };
             
     
@@ -153,17 +181,6 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
     /* * * * * * * * * *
      * PRIVATE METHODS *
      * * * * * * * * * */
-   
-    /**
-     * Set the access token from the localStorage.
-     */
-    var setTokenFromSession = function(){
-        if($localStorage.token){
-            var params = $localStorage.token;
-            params.expires_at = new Date(params.expires_at);
-            setToken(params);
-        }
-    };
 
     /**
      * Set the access token.
@@ -173,10 +190,10 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      */
     var setToken = function(params){
         params = checkParams(params);
-        service.token = service.token || {};      // init the token
-        angular.extend(service.token, params);      // set the access token params
-        setTokenInSession();                // save the token into the session
-        setExpiresAtEvent();                // event to fire when the token expires
+        service.token = service.token || {};    // init the token
+        angular.extend(service.token, params);  // set the access token params
+        setTokenInSession();                    // save the token into the session
+        setExpiresAtEvent();                    // event to fire when the token expires
 
         return service.token;
     };
@@ -195,7 +212,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
             params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
         }
 
-        if(params.access_token || params.error){
+        if (params.access_token || params.error) {
             return params;
         }
     };
@@ -205,8 +222,37 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      */
     var setTokenInSession = function(){
         $localStorage.token = service.token;
+        
+        if (service.token && service.token.refresh_token) {
+            setSemaphoreInSession(true);
+        } else {
+            setSemaphoreInSession(false);
+        }
     };
 
+    /**
+     * Set the access token from the localStorage.
+     */
+    var setTokenFromSession = function(){
+        if($localStorage.token){
+            var params = $localStorage.token;
+            params.expires_at = new Date(params.expires_at);
+            setToken(params);
+        }
+    };
+    
+    var setSemaphoreInSession = function(sem){
+        $localStorage.refresh_semaphore = sem;
+    };
+    
+    var setSemaphoreFromSession = function(){
+        if (typeof $localStorage.refresh_semaphore != 'undefined') {
+            this.refresh_semaphore = $localStorage.refresh_semaphore;
+            return true;
+        };
+        return false;
+    };
+    
     /**
      * Set the access token expiration date (useful for refresh logics)
      */
@@ -217,7 +263,6 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
             service.token.expires_at = expires_at;
         }
     };
-
 
     /**
      * Set the timeout at which the expired event is fired
@@ -269,7 +314,6 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
 
   var service = {};
   var url;
-
 
   /*
    * Defines the authorization URL
@@ -334,10 +378,8 @@ refreshPointClient.factory('RefreshPoint', function(AccessToken) {
 
   service.set = function(params) {
     var state = (params.state) ? encodeURIComponent(params.state) : '';
-    
-    var refreshUriHasQuery = (params.refreshUri.indexOf('?') == -1) ? false : true,
-        //if authorizePath has ? already, append OAuth2 params
-        appendChar = (refreshUriHasQuery) ? '&' : '?';
+    //If the uri has '?' already, just append params.
+    var appendChar = (params.refreshUri.indexOf('?') == -1) ? '?' : '&';
     url = params.refreshUri + appendChar + 'state=' + state+'&' + 'refresh_token=';
     return url;
   };
@@ -348,11 +390,10 @@ refreshPointClient.factory('RefreshPoint', function(AccessToken) {
 
   service.get = function() {
     var tokens = AccessToken.get();
-    console.log(' hier hebben we de tokens ', tokens);
     if (tokens && tokens.refresh_token){
         return url + refresh_token;
     } else {
-        return url;
+        return '';
     }
   };
 
@@ -404,8 +445,7 @@ interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector
 
         service.response = function (response) {
             if (response.status === 401) {
-                console.log("Response 401");
-                //todo: fire refresh procedure
+                //todo: fire refresh procedure here also? or only in responseError
                 AccessToken.destroy();
                 $rootScope.$broadcast('oauth:logout');
             }
@@ -413,59 +453,75 @@ interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector
         };
         service.responseError = function (response) {
             if (response.status === 401) {
-                //todo: fire refresh procedure
-                var $http = $injector.get('$http');
-                var deferred = $q.defer();
-                var refresh_config = {
-                    method: 'GET',
-                    url: RefreshPoint.get()
-                };
-                console.log("Response Error 401", response, refresh_config);
-                
-                $http(refresh_config).success(function(refresh_result){
-                    var new_tokens = false;
-                    if(refresh_result.tokens_enc){
-                        new_tokens = true;
-                        AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
-                    }else if(refresh_result.tokens){
-                        new_tokens = true;
-                        AccessToken.setTokenFromStruct(refresh_result.tokens, false);
-                    }
-                    console.log('ExpiredInterceptor:responseError refresh success', refresh_result, new_tokens);
-                    if(new_tokens){
-                        deferred.resolve();
-                    }else{
-                        deferred.reject();
-                    }
-                }).error(function(error){
-                    console.log('ExpiredInterceptor:responseError refresh fail', error);
-                    AccessToken.destroy();
-                    $rootScope.$broadcast('oauth:logout');
-                    deferred.reject();
-                });
-                
-                return deferred.promise.then(function() {
-                    console.log('ExpiredInterceptor:responseError after refresh', response.config);
-                    return $http(response.config);
-                });
+                var refresh_url = RefreshPoint.get();
+                //The refresh_url will be empty if there is no refresh key available
+                //In that case there is no need at all to even try to do a refresh
+                if (refresh_url && AccessToken.getSemaphore()){
+                    var $http = $injector.get('$http');
+                    var deferred = $q.defer();
+                    //If a refresh is already going on, it makes no sense to do another one
+                    //and also, if that one failed or the refresh token is empty
+                    //we can signal it like this, until a successfull token set 
+                    //is retrieved in which case the 'semaphore is released'
+                    //This release also happens upon session destroy (logout for
+                    //example).
+                    AccessToken.setSemaphore(false);
+                    var refresh_config = {
+                        method: 'GET',
+                        url: refresh_url
+                    };
+                    console.log("Response Error 401 for original request response and refresh config ");
+                    $http(refresh_config).success(function(refresh_result){
+                        var new_tokens = false;
+                        if (refresh_result) {
+                            if (refresh_result.tokens_enc) {
+                                new_tokens = true;
+                                AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
+                            } else if(refresh_result.tokens) {
+                                new_tokens = true;
+                                AccessToken.setTokenFromStruct(refresh_result.tokens, false);
+                            }
+                        }
+                        
+                        if (new_tokens) {
+                            deferred.resolve();
+                        } else {
+                            AccessToken.destroy();
+                            deferred.reject('failed');
+                            $rootScope.$broadcast('oauth:logout');
+                        }
+                    }).error(function(error) {
+                        AccessToken.destroy();
+                        deferred.reject('failed');
+                        $rootScope.$broadcast('oauth:logout');
+                    });
+
+                    return deferred.promise.then(function() {
+                        return $http(response.config);
+                    });
+                } else {
+                    console.log('The request was denied because the user was no'+
+                       ' longer logged in and no refresh token was found or '+
+                       'there has already been a(n unsuccessfull) refresh request.');
+                }
             }
             return $q.reject(response);
         };
+        
         service.request = function (config) {
             var token = $localStorage.token;
             
             if(token){
                 if(!config.headers) config.headers = {};
                 
-                if (expired(token)){
+                if (expired(token)) {
                     $rootScope.$broadcast('oauth:expired', token);
-                    
-                }else{           
+                } else {           
                     config.headers.Authorization = 'Bearer ' + token.access_token;
                 }
-                
-            }else{
-                
+            } else {
+                //there is no authorization token available. Leave the request 
+                //untouched
             }
 
             return config;
@@ -521,7 +577,7 @@ directives.directive('oauth', function(AccessToken, Endpoint, RefreshPoint, Prof
     };
 
     var initAttributes = function() {
-        console.log('scope.authorizePath', scope.authorizePath);
+        
       scope.fullsite      = scope.fullsite      || undefined;
       scope.authorizePath = scope.authorizePath || '/oauth/authorize';
       scope.tokenPath     = scope.tokenPath     || '/oauth/token';
@@ -531,7 +587,7 @@ directives.directive('oauth', function(AccessToken, Endpoint, RefreshPoint, Prof
       scope.scope         = scope.scope         || undefined;
       scope.accessType    = scope.accessType    || undefined;
       scope.approvalPrompt = (scope.approvalPrompt === 'force')?true:false;
-        console.log('scope.authorizePath', scope.authorizePath);
+      
     };
 
     var compile = function() {
@@ -543,30 +599,26 @@ directives.directive('oauth', function(AccessToken, Endpoint, RefreshPoint, Prof
 
     var initProfile = function(scope) {
       var token = AccessToken.get();
-      console.log('in de initProfile');
+      
       if (! scope.profileUri){
           return true;
       }
       if (token && token.access_token) {
         Profile.find(scope.profileUri).success(function(response) {
           if (! response || !response.user_code){
-              console.log('the profile call succeeded but the response was empty', response);
               scope.profile = null;
               scope.logout();
           } else {
-              console.log('the profile call succeeded and the response was NOT empty', response);
               scope.profile = response;
           }
         }).error( function(response){
-            console.log('the profile call failed', response);
             scope.profile = null;
             scope.logout();
         });
       } else if (scope.show == 'logged-in') {
-            console.log('in de initProfile nog steeds token.access_token bestond niet');
             scope.logout();
       } else {
-          console.log('lang en breed uitgelogd');
+         
       }
     };
 
