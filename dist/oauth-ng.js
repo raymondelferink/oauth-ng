@@ -1,5 +1,6 @@
 /* oauth-ng - v0.3.0 - 2015-06-11 */
-
+//This directive indicates executing the rest of this js file in 
+//strict modus (see further http://www.w3schools.com/js/js_strict.asp)
 'use strict';
 
 // App libraries
@@ -7,7 +8,7 @@ var app = angular.module('oauth', [
   'oauth.directive',      // login directive
   'oauth.accessToken',    // access token service
   'oauth.endpoint',       // oauth endpoint service
-  'oauth.resfreshpoint',    // oauth refresh service
+  'oauth.resfreshpoint',  // oauth refresh service
   'oauth.profile',        // profile model
   'oauth.interceptor'     // bearer token interceptor
 ]);
@@ -17,7 +18,6 @@ angular.module('oauth').config(['$locationProvider','$httpProvider',
     $httpProvider.interceptors.push('ExpiredInterceptor');
   }]);
 
-'use strict';
 
 var accessTokenService = angular.module('oauth.accessToken', ['ngStorage']);
 
@@ -57,6 +57,17 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
 
         return this.token;
     };
+    
+    
+    service.getAuthHeader = function(){
+        if(this.token){
+            return {
+                Authorization : 'Bearer ' + this.token.access_token
+            }
+        }else{
+            return {};
+        }
+    }
     
     /**
      * Returns the refresh semaphore.
@@ -182,6 +193,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      * PRIVATE METHODS *
      * * * * * * * * * */
 
+ 
     /**
      * Set the access token.
      *
@@ -194,7 +206,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
         angular.extend(service.token, params);  // set the access token params
         setTokenInSession();                    // save the token into the session
         setExpiresAtEvent();                    // event to fire when the token expires
-
+        service.setSemaphore(true);
         return service.token;
     };
 
@@ -222,12 +234,6 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      */
     var setTokenInSession = function(){
         $localStorage.token = service.token;
-        
-        if (service.token && service.token.refresh_token) {
-            setSemaphoreInSession(true);
-        } else {
-            setSemaphoreInSession(false);
-        }
     };
 
     /**
@@ -306,7 +312,6 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
     return service;
 });
 
-'use strict';
 
 var endpointClient = angular.module('oauth.endpoint', []);
 
@@ -391,7 +396,7 @@ refreshPointClient.factory('RefreshPoint', function(AccessToken) {
   service.get = function() {
     var tokens = AccessToken.get();
     if (tokens && tokens.refresh_token){
-        return url + refresh_token;
+        return url + tokens.refresh_token;
     } else {
         return '';
     }
@@ -400,7 +405,6 @@ refreshPointClient.factory('RefreshPoint', function(AccessToken) {
   return service;
 });
 
-'use strict';
 
 var profileClient = angular.module('oauth.profile', [])
 
@@ -433,108 +437,185 @@ profileClient.factory('Profile', function($http, AccessToken, $rootScope) {
   return service;
 });
 
-'use strict';
 
-var interceptorService = angular.module('oauth.interceptor', []);
+var interceptorService = angular.module('oauth.interceptor', 
+    ['http-auth-interceptor-buffer']);
 
-interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector', '$localStorage', 
-    '$sessionStorage', 'AccessToken', 'RefreshPoint',
-    function ($rootScope, $q, $injector, $localStorage, $sessionStorage, AccessToken, RefreshPoint) {
+interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector',
+    'AccessToken', 'RefreshPoint', 'httpBuffer',
+    function ($rootScope, $q, $injector, AccessToken, RefreshPoint, httpBuffer) {
 
         var service = {};
-
-        service.response = function (response) {
-            if (response.status === 401) {
-                //todo: fire refresh procedure here also? or only in responseError
-                AccessToken.destroy();
-                $rootScope.$broadcast('oauth:logout');
-            }
-            return response || $q.when(response);
-        };
+        
         service.responseError = function (response) {
             if (response.status === 401) {
                 var refresh_url = RefreshPoint.get();
                 //The refresh_url will be empty if there is no refresh key available
                 //In that case there is no need at all to even try to do a refresh
-                if (refresh_url && AccessToken.getSemaphore()){
-                    var $http = $injector.get('$http');
+                
+                /*
+                 * if refresh url
+                 *      var $http
+                 *      var $deferred
+                 *      push on httpbuffer
+                 *      if getSemaphore {
+                 *          try refresh
+                 *              on success: retry all from http buffer
+                 *              //Note all subsequent calls will be after store 
+                 *              //token in sessionband so they will use the new 
+                 *              //token and not fail
+                 *      } else 
+                 *         
+                 *      }
+                 *      
+                 */
+                
+                if (refresh_url) {
                     var deferred = $q.defer();
-                    //If a refresh is already going on, it makes no sense to do another one
-                    //and also, if that one failed or the refresh token is empty
-                    //we can signal it like this, until a successfull token set 
-                    //is retrieved in which case the 'semaphore is released'
-                    //This release also happens upon session destroy (logout for
-                    //example).
-                    AccessToken.setSemaphore(false);
-                    var refresh_config = {
-                        method: 'GET',
-                        url: refresh_url
-                    };
-                    console.log("Response Error 401 for original request response and refresh config ");
-                    $http(refresh_config).success(function(refresh_result){
-                        var new_tokens = false;
-                        if (refresh_result) {
-                            if (refresh_result.tokens_enc) {
-                                new_tokens = true;
-                                AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
-                            } else if(refresh_result.tokens) {
-                                new_tokens = true;
-                                AccessToken.setTokenFromStruct(refresh_result.tokens, false);
-                            }
-                        }
+                    var original_config = response.config;
+                    httpBuffer.append(original_config, deferred, true);
+                    
+                    if (AccessToken.getSemaphore()){
+                        //If a refresh is already going on, it makes no sense to do another one
+                        //and also, if that one failed or the refresh token is empty
+                        //we can signal it like this, until a successfull token set 
+                        //is retrieved in which case the 'semaphore is released'
+                        //This release also happens upon session destroy (logout for
+                        //example).
+                        AccessToken.setSemaphore(false);
                         
-                        if (new_tokens) {
-                            deferred.resolve();
-                        } else {
-                            AccessToken.destroy();
-                            deferred.reject('failed');
-                            $rootScope.$broadcast('oauth:logout');
-                        }
-                    }).error(function(error) {
-                        AccessToken.destroy();
-                        deferred.reject('failed');
-                        $rootScope.$broadcast('oauth:logout');
-                    });
+                        var refresh_config = {
+                            method: 'GET',
+                            url: refresh_url,
+                            is_refresh: true
+                        };
+                        var $http = $injector.get('$http');
+                        $http(refresh_config).success(function(refresh_result){
+                            var new_tokens = false;
+                            if (refresh_result) {
+                                if (refresh_result.tokens_enc) {
+                                    new_tokens = true;
+                                    AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
+                                } else if(refresh_result.tokens) {
+                                    new_tokens = true;
+                                    AccessToken.setTokenFromStruct(refresh_result.tokens, false);
+                                }
+                            }
 
-                    return deferred.promise.then(function() {
-                        return $http(response.config);
-                    });
+                            if (new_tokens) {
+                                httpBuffer.retryAll();
+                            } else {
+                                AccessToken.destroy();
+                                $rootScope.$broadcast('oauth:logout');
+                                httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
+                            }
+                        }).error(function(error_str) {
+                            AccessToken.destroy();
+                            httpBuffer.rejectAll('failed: '+ error_str);
+                            $rootScope.$broadcast('oauth:logout');
+                        });
+                    } else {
+                        console.log('The request was denied for so long because the user was no'+
+                           ' longer logged in and there is an attempt to refresh the session' +
+                           ' going on. This call will be attempted later upon success.');
+                    }
+                    
+                    return deferred.promise;
                 } else {
                     console.log('The request was denied because the user was no'+
-                       ' longer logged in and no refresh token was found or '+
-                       'there has already been a(n unsuccessfull) refresh request.');
+                       ' longer logged in and no refresh token was found .');
                 }
             }
             return $q.reject(response);
+            
         };
         
         service.request = function (config) {
-            var token = $localStorage.token;
-            
-            if(token){
-                if(!config.headers) config.headers = {};
-                
-                if (expired(token)) {
-                    $rootScope.$broadcast('oauth:expired', token);
-                } else {           
-                    config.headers.Authorization = 'Bearer ' + token.access_token;
-                }
-            } else {
-                //there is no authorization token available. Leave the request 
-                //untouched
+            if (AccessToken.getSemaphore() || config.is_refresh){
+               if(!config.headers) config.headers = {};
+                angular.extend(config.headers, AccessToken.getAuthHeader());
+                return config;
+            }else {
+                var deferred = $q.defer();
+                httpBuffer.append(config, deferred, false);
+                return deferred.promise;
             }
-
-            return config;
         };
-
-        var expired = function (token) {
-            return (token && token.expires_at && new Date(token.expires_at) < new Date())
-        };
-
         return service;
     }]);
 
-'use strict';
+
+/**
+ * Private module, a utility, required internally by 'http-auth-interceptor'.
+ */
+angular.module('http-auth-interceptor-buffer', [])
+
+.factory('httpBuffer', ['AccessToken', '$injector', function (AccessToken, $injector) {
+    // from: https://github.com/witoldsz/angular-http-auth/blob/master/src/http-auth-interceptor.js
+    /** Holds all the requests, so they can be re-requested in future. */
+    var buffer = [];
+
+    /** Service initialized later because of circular dependency problem. */
+    var $http;
+
+    function retryHttpRequest(config, deferred) {
+        function successCallback(response) {
+            deferred.resolve(response);
+        }
+        function errorCallback(response) {
+            deferred.reject(response);
+        }
+        $http = $http || $injector.get('$http');
+        $http(config).then(successCallback, errorCallback);
+    }
+
+    return {
+        /**
+         * Appends HTTP request configuration object with deferred response attached to buffer.
+         */
+        append: function (config, deferred, resend) {
+            if (!resend)
+                resend = false;
+            buffer.push({
+                config: config,
+                deferred: deferred,
+                resend: resend
+            });
+        },
+        /**
+         * Abandon or reject (if reason provided) all the buffered requests.
+         */
+        rejectAll: function (reason) {
+            if (reason) {
+                for (var i = 0; i < buffer.length; ++i) {
+                    buffer[i].deferred.reject(reason);
+                }
+            }
+            buffer = [];
+        },
+        /**
+         * Retries all the buffered requests clears the buffer.
+         */
+        retryAll: function (updater) {
+            for (var i = 0; i < buffer.length; ++i) {
+                if (buffer[i].resend) {
+                    if (updater)
+                        buffer[i].config = updater(buffer[i].config);
+                    retryHttpRequest(buffer[i].config, buffer[i].deferred);
+                } else {
+                    if (updater)
+                        updater(buffer[i].config);
+
+                    if (!buffer[i].config.headers)
+                        buffer[i].config.headers = {};
+                    angular.extend(buffer[i].config.headers, AccessToken.getAuthHeader());
+                    buffer[i].deferred.resolve(buffer[i].config);
+                }
+            }
+            buffer = [];
+        }
+    };
+}]);
 
 var directives = angular.module('oauth.directive', []);
 
@@ -670,5 +751,5 @@ directives.directive('oauth', function(AccessToken, Endpoint, RefreshPoint, Prof
     });
   };
 
-  return definition
+  return definition;
 });
