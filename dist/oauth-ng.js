@@ -7,7 +7,7 @@
 var app = angular.module('oauth', [
   'oauth.directive',      // login directive
   'oauth.accessToken',    // access token service
-  'oauth.endpoint',       // oauth endpoint service
+  'oauth.authorisation',       // oauth endpoint service
   'oauth.resfreshpoint',  // oauth refresh service
   'oauth.profile',        // profile model
   'oauth.interceptor'     // bearer token interceptor
@@ -201,7 +201,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      * @returns {*|{}}
      */
     var setToken = function(params){
-        params = checkParams(params);
+        params = filterParams(params);
         service.token = service.token || {};    // init the token
         angular.extend(service.token, params);  // set the access token params
         setTokenInSession();                    // save the token into the session
@@ -301,7 +301,7 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      * $returns {{}}
      */
     
-    var checkParams = function(params){
+    var filterParams = function(params){
         var checkedParams = {};
         angular.forEach(oAuth2HashTokens,function(hashKey){
             if(params[hashKey]) checkedParams[hashKey] = params[hashKey];
@@ -313,17 +313,14 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
 });
 
 
-var endpointClient = angular.module('oauth.endpoint', []);
-
-endpointClient.factory('Endpoint', function(AccessToken, $location) {
-
+angular.module('oauth.authorisation', [])
+.factory('AuthorisationEndPoint', function() {//used to have two unused params: AccessToken, $location
   var service = {};
   var url;
 
   /*
    * Defines the authorization URL
    */
-
   service.set = function(params) {
     var oAuthScope = (params.scope) ? params.scope : '',
         state = (params.state) ? encodeURIComponent(params.state) : '',
@@ -354,16 +351,13 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
   /*
    * Returns the authorization URL
    */
-
   service.get = function() {
     return url;
   };
 
-
   /*
    * Redirects the app to the authorization URL
    */
-
   service.redirect = function() {
     window.location.replace(url);
   };
@@ -371,9 +365,8 @@ endpointClient.factory('Endpoint', function(AccessToken, $location) {
   return service;
 });
 
-var refreshPointClient = angular.module('oauth.resfreshpoint', []);
-
-refreshPointClient.factory('RefreshPoint', function(AccessToken) {
+angular.module('oauth.resfreshpoint', [])
+ .factory('RefreshPoint', function(AccessToken) {
 
   var service = {};
   var url;
@@ -413,7 +406,7 @@ profileClient.factory('Profile', function($http, AccessToken, $rootScope) {
   var profile;
 
   service.find = function(uri) {
-    var promise = $http.get(uri, { headers: headers() });
+    var promise = $http.get(uri, { headers: AccessToken.getAuthHeader() });
     promise.success(function(response) {
         profile = response;
         $rootScope.$broadcast('oauth:profile', profile);
@@ -428,10 +421,6 @@ profileClient.factory('Profile', function($http, AccessToken, $rootScope) {
   service.set = function(resource) {
     profile = resource;
     return profile;
-  };
-
-  var headers = function() {
-    return { Authorization: 'Bearer ' + AccessToken.get().access_token };
   };
 
   return service;
@@ -451,31 +440,13 @@ interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector
             if (response.status === 401) {
                 var refresh_url = RefreshPoint.get();
                 //The refresh_url will be empty if there is no refresh key available
-                //In that case there is no need at all to even try to do a refresh
-                
-                /*
-                 * if refresh url
-                 *      var $http
-                 *      var $deferred
-                 *      push on httpbuffer
-                 *      if getSemaphore {
-                 *          try refresh
-                 *              on success: retry all from http buffer
-                 *              //Note all subsequent calls will be after store 
-                 *              //token in sessionband so they will use the new 
-                 *              //token and not fail
-                 *      } else 
-                 *         
-                 *      }
-                 *      
-                 */
-                
+                //In that case there is no need at all to even try to do a refresh                
                 if (refresh_url) {
                     var deferred = $q.defer();
-                    var original_config = response.config;
-                    httpBuffer.append(original_config, deferred, true);
+                    httpBuffer.append(response.config, deferred, true);
                     
                     if (AccessToken.getSemaphore()){
+         console.log('trying to refresh: agent was the call ',response.config);
                         //If a refresh is already going on, it makes no sense to do another one
                         //and also, if that one failed or the refresh token is empty
                         //we can signal it like this, until a successfull token set 
@@ -503,7 +474,13 @@ interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector
                             }
 
                             if (new_tokens) {
-                                httpBuffer.retryAll();
+                                var updater_fun = function(config){
+                                    var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
+                                    config.url += appendChar + "test=1";
+                                    return config;
+                                };
+                                //updater_fun = null;
+                                httpBuffer.retryAll(updater_fun);
                             } else {
                                 AccessToken.destroy();
                                 $rootScope.$broadcast('oauth:logout');
@@ -565,6 +542,7 @@ angular.module('http-auth-interceptor-buffer', [])
         function errorCallback(response) {
             deferred.reject(response);
         }
+        console.log('trying again ', config.url);
         $http = $http || $injector.get('$http');
         $http(config).then(successCallback, errorCallback);
     }
@@ -603,11 +581,12 @@ angular.module('http-auth-interceptor-buffer', [])
                         buffer[i].config = updater(buffer[i].config);
                     retryHttpRequest(buffer[i].config, buffer[i].deferred);
                 } else {
-                    if (updater)
-                        updater(buffer[i].config);
-
                     if (!buffer[i].config.headers)
                         buffer[i].config.headers = {};
+                    if (updater)
+                        updater(buffer[i].config);
+                    console.log('Some call that never made it before ', buffer[i].config.url);
+                    
                     angular.extend(buffer[i].config.headers, AccessToken.getAuthHeader());
                     buffer[i].deferred.resolve(buffer[i].config);
                 }
@@ -619,7 +598,7 @@ angular.module('http-auth-interceptor-buffer', [])
 
 var directives = angular.module('oauth.directive', []);
 
-directives.directive('oauth', function(AccessToken, Endpoint, RefreshPoint, Profile, $location, $rootScope, $compile, $http, $templateCache) {
+directives.directive('oauth', function(AccessToken, AuthorisationEndPoint, RefreshPoint, Profile, $location, $rootScope, $compile, $http, $templateCache) {
 
   var definition = {
     restrict: 'AE',
@@ -650,7 +629,7 @@ directives.directive('oauth', function(AccessToken, Endpoint, RefreshPoint, Prof
     var init = function() {
       initAttributes();          // sets defaults
       compile();                 // compiles the desired layout
-      Endpoint.set(scope);       // sets the oauth authorization url
+      AuthorisationEndPoint.set(scope);       // sets the oauth authorization url
       AccessToken.set(scope);    // sets the access token object (if existing, from fragment or session)
       RefreshPoint.set(scope);
       initProfile(scope);        // gets the profile resource (if existing the access token)
@@ -712,7 +691,7 @@ directives.directive('oauth', function(AccessToken, Endpoint, RefreshPoint, Prof
     };
 
     scope.login = function() {
-      Endpoint.redirect();
+      AuthorisationEndPoint.redirect();
     };
 
     scope.logout = function() {
