@@ -21,7 +21,7 @@ angular.module('oauth').config(['$locationProvider','$httpProvider',
 
 var accessTokenService = angular.module('oauth.accessToken', ['ngStorage']);
 
-accessTokenService.factory('AccessToken', function($rootScope, $location, $localStorage, $sessionStorage, $interval){
+accessTokenService.factory('AccessToken', function($rootScope, $location, $localStorage, $sessionStorage, $interval, $http, RefreshPoint){
 
     var service = {
             token: null,
@@ -186,8 +186,10 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
 
         return $sessionStorage.encrypt_key;
     };
-            
     
+    service.refresh = function(){
+        RefreshPoint.refresh($http);
+    };
    
     /* * * * * * * * * *
      * PRIVATE METHODS *
@@ -366,7 +368,7 @@ angular.module('oauth.authorisation', [])
 });
 
 angular.module('oauth.resfreshpoint', [])
- .factory('RefreshPoint', function(AccessToken) {
+ .factory('RefreshPoint', function(AccessToken, httpBuffer, $rootScope) {
 
   var service = {};
   var url;
@@ -393,6 +395,49 @@ angular.module('oauth.resfreshpoint', [])
     } else {
         return '';
     }
+  };
+  
+  service.refresh = function($http){
+        AccessToken.setSemaphore(false);
+        var refresh_url = service.get();
+        if(!refresh_url) return false;
+        
+        var refresh_config = {
+            method: 'GET',
+            url: refresh_url,
+            is_refresh: true
+        };
+        
+        $http(refresh_config).success(function(refresh_result){
+            var new_tokens = false;
+            if (refresh_result) {
+                if (refresh_result.tokens_enc) {
+                    new_tokens = true;
+                    AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
+                } else if(refresh_result.tokens) {
+                    new_tokens = true;
+                    AccessToken.setTokenFromStruct(refresh_result.tokens, false);
+                }
+            }
+
+            if (new_tokens) {
+                var updater_fun = function(config){
+                    var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
+                    config.url += appendChar + "test=1";
+                    return config;
+                };
+                //updater_fun = null;
+                httpBuffer.retryAll(updater_fun);
+            } else {
+                AccessToken.destroy();
+                $rootScope.$broadcast('oauth:logout');
+                httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
+            }
+        }).error(function(error_str) {
+            AccessToken.destroy();
+            httpBuffer.rejectAll('failed: '+ error_str);
+            $rootScope.$broadcast('oauth:logout');
+        });      
   };
 
   return service;
@@ -446,51 +491,54 @@ interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector
                     httpBuffer.append(response.config, deferred, true);
                     
                     if (AccessToken.getSemaphore()){
-         console.log('trying to refresh: agent was the call ',response.config);
+                        
                         //If a refresh is already going on, it makes no sense to do another one
                         //and also, if that one failed or the refresh token is empty
                         //we can signal it like this, until a successfull token set 
                         //is retrieved in which case the 'semaphore is released'
                         //This release also happens upon session destroy (logout for
                         //example).
-                        AccessToken.setSemaphore(false);
-                        
-                        var refresh_config = {
-                            method: 'GET',
-                            url: refresh_url,
-                            is_refresh: true
-                        };
                         var $http = $injector.get('$http');
-                        $http(refresh_config).success(function(refresh_result){
-                            var new_tokens = false;
-                            if (refresh_result) {
-                                if (refresh_result.tokens_enc) {
-                                    new_tokens = true;
-                                    AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
-                                } else if(refresh_result.tokens) {
-                                    new_tokens = true;
-                                    AccessToken.setTokenFromStruct(refresh_result.tokens, false);
-                                }
-                            }
-
-                            if (new_tokens) {
-                                var updater_fun = function(config){
-                                    var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
-                                    config.url += appendChar + "test=1";
-                                    return config;
-                                };
-                                //updater_fun = null;
-                                httpBuffer.retryAll(updater_fun);
-                            } else {
-                                AccessToken.destroy();
-                                $rootScope.$broadcast('oauth:logout');
-                                httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
-                            }
-                        }).error(function(error_str) {
-                            AccessToken.destroy();
-                            httpBuffer.rejectAll('failed: '+ error_str);
-                            $rootScope.$broadcast('oauth:logout');
-                        });
+                        RefreshPoint.refresh($http);
+//                        
+//                        AccessToken.setSemaphore(false);
+//                        
+//                        var refresh_config = {
+//                            method: 'GET',
+//                            url: refresh_url,
+//                            is_refresh: true
+//                        };
+//                        var $http = $injector.get('$http');
+//                        $http(refresh_config).success(function(refresh_result){
+//                            var new_tokens = false;
+//                            if (refresh_result) {
+//                                if (refresh_result.tokens_enc) {
+//                                    new_tokens = true;
+//                                    AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
+//                                } else if(refresh_result.tokens) {
+//                                    new_tokens = true;
+//                                    AccessToken.setTokenFromStruct(refresh_result.tokens, false);
+//                                }
+//                            }
+//
+//                            if (new_tokens) {
+//                                var updater_fun = function(config){
+//                                    var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
+//                                    config.url += appendChar + "test=1";
+//                                    return config;
+//                                };
+//                                //updater_fun = null;
+//                                httpBuffer.retryAll(updater_fun);
+//                            } else {
+//                                AccessToken.destroy();
+//                                $rootScope.$broadcast('oauth:logout');
+//                                httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
+//                            }
+//                        }).error(function(error_str) {
+//                            AccessToken.destroy();
+//                            httpBuffer.rejectAll('failed: '+ error_str);
+//                            $rootScope.$broadcast('oauth:logout');
+//                        });
                     } else {
                         console.log('The request was denied for so long because the user was no'+
                            ' longer logged in and there is an attempt to refresh the session' +
