@@ -4,27 +4,29 @@
 'use strict';
 
 // App libraries
-var app = angular.module('oauth', [
+angular.module('oauth', [
   'oauth.directive',      // login directive
   'oauth.accessToken',    // access token service
-  'oauth.authorisation',       // oauth endpoint service
-  'oauth.resfreshpoint',  // oauth refresh service
   'oauth.profile',        // profile model
-  'oauth.interceptor'     // bearer token interceptor
-]);
+  'oauth.interceptor',     // bearer token interceptor
+  'oauth.interceptor-buffer'
+])
 
-angular.module('oauth').config(['$locationProvider','$httpProvider',
-  function($locationProvider, $httpProvider) {
+.config(['$httpProvider', function($httpProvider) {
     $httpProvider.interceptors.push('ExpiredInterceptor');
-  }]);
+}]);
 
 
-var accessTokenService = angular.module('oauth.accessToken', ['ngStorage']);
+angular.module('oauth.accessToken', ['ngStorage'])
 
-accessTokenService.factory('AccessToken', function($rootScope, $location, $localStorage, $sessionStorage, $interval, $http, RefreshPoint){
+.factory('AccessToken', function($rootScope, $location, $localStorage, $sessionStorage, $interval, $injector, httpBuffer){
 
     var service = {
             token: null,
+            auth_url: '',
+            refresh_url: '',
+            state: '',
+            encrypt: false,
             refresh_semaphore: true
         },
         oAuth2HashTokens = [ 
@@ -47,7 +49,13 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      * - takes the token from the fragment URI
      * - takes the token from the localStorage
      */
-    service.set = function(){
+    service.set = function(params){
+        if(params){
+            this.setAuthUrl(params);
+            this.setRefreshUrl(params);
+            this.state = (params.state) ? encodeURIComponent(params.state) : '';
+            this.encrypt = (params.encrypt)?true:false;
+        }
         this.setTokenFromString($location.hash());
 
         //If hash is present in URL always use it, cuz its coming from oAuth2 provider redirect
@@ -58,6 +66,53 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
         return this.token;
     };
     
+    service.getAuthUrl = function(){
+        var state = (this.encrypt)?service.getEcryptionKey(this.state):this.state;
+        return this.auth_url + ((this.auth_url.indexOf('?') == -1)? '?' : '&') + 'state=' + state;
+        
+    };
+    
+    service.setAuthUrl = function(params) {
+        var oAuthScope = (params.scope) ? params.scope : '',
+            accessType = (params.accessType) ? params.accessType : '',
+            approvalPrompt = (params.approvalPrompt)? true:false;
+        if (params.fullsite) {
+            this.auth_url = params.fullsite ;
+        } else {
+            //if authorizePath has ? already, append OAuth2 params
+            var appendChar = (params.authorizePath.indexOf('?') == -1) ? '?' : '&';
+            this.auth_url = params.site +
+              params.authorizePath +
+              appendChar + 'response_type='+params.responseType+'&' +
+              'client_id=' + encodeURIComponent(params.clientId) + '&' +
+              'redirect_uri=' + encodeURIComponent(params.redirectUri) + '&' +
+              'scope=' + oAuthScope + '&' +                  
+              'access_type='+ accessType;
+            if(approvalPrompt) this.auth_url += '&approval_prompt=force';
+        }
+        return this.auth_url;
+    };
+    
+    service.authRedirect = function() {
+        window.location.replace(this.getAuthUrl());
+    };
+  
+    service.getRefreshUrl = function(){
+        if (this.token && this.token.refresh_token){
+            var state = (this.encrypt)?service.getEcryptionKey(this.state):this.state;
+            return this.refresh_url + ((this.refresh_url.indexOf('?') == -1)? '?' : '&') 
+                    + 'state=' + state
+                    + '&refresh_token=' + this.token.refresh_token;
+        } else {
+            return '';
+        }
+    };
+    
+    service.setRefreshUrl = function(params) {
+        
+        this.refresh_url = params.refreshUri;
+        return this.refresh_url;
+    };
     
     service.getAuthHeader = function(){
         if(this.token){
@@ -112,6 +167,58 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
     };
 
     /**
+     * Refresh accesstoken.
+     * 
+     */
+    service.refresh = function(){
+        var refresh_url = this.getRefreshUrl();
+        if(!refresh_url){
+            service.setSemaphore(true);
+            return false;
+        }
+        
+        this.setSemaphore(false);
+        var refresh_config = {
+            method: 'GET',
+            url: refresh_url,
+            is_refresh: true
+        };
+        var $http = $injector.get('$http');
+        $http(refresh_config).success(function(refresh_result){
+            var new_tokens = false;
+            if (refresh_result) {
+                if (refresh_result.tokens_enc) {
+                    new_tokens = true;
+                    service.setTokenFromStruct(refresh_result.tokens_enc, true);
+                } else if(refresh_result.tokens) {
+                    new_tokens = true;
+                    service.setTokenFromStruct(refresh_result.tokens, false);
+                }
+                
+            }
+
+            if (new_tokens) {
+                var updater_fun = function(config){
+                    var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
+                    config.url += appendChar + "test=1";
+                    return config;
+                };
+                //updater_fun = null;
+                httpBuffer.retryAll(updater_fun);
+            } else {
+                service.destroy();
+                $rootScope.$broadcast('oauth:logout');
+                httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
+            }
+        }).error(function(error_str) {
+            service.destroy();
+            httpBuffer.rejectAll('failed: '+ error_str);
+            $rootScope.$broadcast('oauth:logout');
+        });
+        
+    };
+    
+    /**
      * Tells if the access token is expired.
      */
     service.expired = function(){
@@ -139,31 +246,31 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
      */
     service.setTokenFromStruct = function(params, decrypt){
         if(params){
-            if(CryptoJS){
-                var key = $sessionStorage.encrypt_key;
-                delete $sessionStorage.encrypt_key;
-                if (decrypt) {
-                    var CryptoJSAesJson = {
-                        stringify: function (cipherParams) {
-                            var j = {ct: cipherParams.ciphertext.toString(CryptoJS.enc.Base64)};
-                            if (cipherParams.iv) j.iv = cipherParams.iv.toString();
-                            if (cipherParams.salt) j.s = cipherParams.salt.toString();
-                            return JSON.stringify(j);
-                        },
-                        parse: function (jsonStr) {
-                            var j = JSON.parse(jsonStr);
-                            var cipherParams = CryptoJS.lib.CipherParams.create({ciphertext: CryptoJS.enc.Base64.parse(j.ct)});
-                            if (j.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(j.iv);
-                            if (j.s) cipherParams.salt = CryptoJS.enc.Hex.parse(j.s);
-                            return cipherParams;
-                        }
-                    }; 
-                    
-                    var auth_enc_words = CryptoJS.enc.Base64.parse(params);//auth_enc_64
-                    params = auth_enc_words.toString(CryptoJS.enc.Utf8);//auth_enc
-                    var decrypted_words = CryptoJS.AES.decrypt(params, key, {format: CryptoJSAesJson});
-                    params = JSON.parse(decrypted_words.toString(CryptoJS.enc.Utf8));
-                }
+            if(CryptoJS && decrypt){
+                var key = this.getEcryptionKey();
+                this.deleteEncryptionKey();
+                
+                var CryptoJSAesJson = {
+                    stringify: function (cipherParams) {
+                        var j = {ct: cipherParams.ciphertext.toString(CryptoJS.enc.Base64)};
+                        if (cipherParams.iv) j.iv = cipherParams.iv.toString();
+                        if (cipherParams.salt) j.s = cipherParams.salt.toString();
+                        return JSON.stringify(j);
+                    },
+                    parse: function (jsonStr) {
+                        var j = JSON.parse(jsonStr);
+                        var cipherParams = CryptoJS.lib.CipherParams.create({ciphertext: CryptoJS.enc.Base64.parse(j.ct)});
+                        if (j.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(j.iv);
+                        if (j.s) cipherParams.salt = CryptoJS.enc.Hex.parse(j.s);
+                        return cipherParams;
+                    }
+                }; 
+
+                var auth_enc_words = CryptoJS.enc.Base64.parse(params);//auth_enc_64
+                params = auth_enc_words.toString(CryptoJS.enc.Utf8);//auth_enc
+                var decrypted_words = CryptoJS.AES.decrypt(params, key, {format: CryptoJSAesJson});
+                params = JSON.parse(decrypted_words.toString(CryptoJS.enc.Utf8));
+                
             }
             setToken(params);
             setExpiresAt();
@@ -171,9 +278,9 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
         }
     };
 
-    service.getEcryptionKey = function (prefix, resetkey) {
+    service.getEcryptionKey = function (prefix) {
         if(!prefix) prefix = '';
-        if (!$sessionStorage.encrypt_key || resetkey) {
+        if (!$sessionStorage.encrypt_key) {
             var encrypt_key = '';
             var key_length = 20;
             var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -187,9 +294,10 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
         return $sessionStorage.encrypt_key;
     };
     
-    service.refresh = function(){
-        RefreshPoint.refresh($http);
-    };
+    service.deleteEncryptionKey = function(){
+        delete $sessionStorage.encrypt_key;
+    }
+    
    
     /* * * * * * * * * *
      * PRIVATE METHODS *
@@ -314,144 +422,14 @@ accessTokenService.factory('AccessToken', function($rootScope, $location, $local
     return service;
 });
 
+angular.module('oauth.profile', [])
 
-angular.module('oauth.authorisation', [])
-.factory('AuthorisationEndPoint', function() {//used to have two unused params: AccessToken, $location
-  var service = {};
-  var url;
-
-  /*
-   * Defines the authorization URL
-   */
-  service.set = function(params) {
-    var oAuthScope = (params.scope) ? params.scope : '',
-        state = (params.state) ? encodeURIComponent(params.state) : '',
-        accessType = (params.accessType) ? params.accessType : '',
-        approvalPrompt = (params.approvalPrompt)? true:false;
-    if (params.fullsite) {
-        var authPathHasQuery = ((params.fullsite.indexOf('?') == -1) ? false : true),
-            //if authorizePath has ? already, append OAuth2 params
-            appendChar = (authPathHasQuery ? '&' : '?');
-            url = params.fullsite + appendChar + 'state=' + state;
-    } else {
-        var authPathHasQuery = (params.authorizePath.indexOf('?') == -1) ? false : true,
-            //if authorizePath has ? already, append OAuth2 params
-            appendChar = (authPathHasQuery) ? '&' : '?';
-            url = params.site +
-              params.authorizePath +
-              appendChar + 'response_type='+params.responseType+'&' +
-              'client_id=' + encodeURIComponent(params.clientId) + '&' +
-              'redirect_uri=' + encodeURIComponent(params.redirectUri) + '&' +
-              'scope=' + oAuthScope + '&' +
-              'state=' + state + '&' +
-              'access_type='+ accessType;
-        if(approvalPrompt) url += '&approval_prompt=force';
-    }
-    return url;
-  };
-
-  /*
-   * Returns the authorization URL
-   */
-  service.get = function() {
-    return url;
-  };
-
-  /*
-   * Redirects the app to the authorization URL
-   */
-  service.redirect = function() {
-    window.location.replace(url);
-  };
-
-  return service;
-});
-
-angular.module('oauth.resfreshpoint', [])
- .factory('RefreshPoint', function(AccessToken, httpBuffer, $rootScope) {
-
-  var service = {};
-  var url;
-  /*
-   * Defines the refresh URL
-   */
-
-  service.set = function(params) {
-    var state = (params.state) ? encodeURIComponent(params.state) : '';
-    //If the uri has '?' already, just append params.
-    var appendChar = (params.refreshUri.indexOf('?') == -1) ? '?' : '&';
-    url = params.refreshUri + appendChar + 'state=' + state+'&' + 'refresh_token=';
-    return url;
-  };
-
-  /*
-   * Returns the refresh URL
-   */
-
-  service.get = function() {
-    var tokens = AccessToken.get();
-    if (tokens && tokens.refresh_token){
-        return url + tokens.refresh_token;
-    } else {
-        return '';
-    }
-  };
-  
-  service.refresh = function($http){
-        AccessToken.setSemaphore(false);
-        var refresh_url = service.get();
-        if(!refresh_url) return false;
-        
-        var refresh_config = {
-            method: 'GET',
-            url: refresh_url,
-            is_refresh: true
-        };
-        
-        $http(refresh_config).success(function(refresh_result){
-            var new_tokens = false;
-            if (refresh_result) {
-                if (refresh_result.tokens_enc) {
-                    new_tokens = true;
-                    AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
-                } else if(refresh_result.tokens) {
-                    new_tokens = true;
-                    AccessToken.setTokenFromStruct(refresh_result.tokens, false);
-                }
-            }
-
-            if (new_tokens) {
-                var updater_fun = function(config){
-                    var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
-                    config.url += appendChar + "test=1";
-                    return config;
-                };
-                //updater_fun = null;
-                httpBuffer.retryAll(updater_fun);
-            } else {
-                AccessToken.destroy();
-                $rootScope.$broadcast('oauth:logout');
-                httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
-            }
-        }).error(function(error_str) {
-            AccessToken.destroy();
-            httpBuffer.rejectAll('failed: '+ error_str);
-            $rootScope.$broadcast('oauth:logout');
-        });      
-  };
-
-  return service;
-});
-
-
-var profileClient = angular.module('oauth.profile', [])
-
-profileClient.factory('Profile', function($http, AccessToken, $rootScope) {
+.factory('Profile', function($http, $rootScope) {
   var service = {};
   var profile;
 
   service.find = function(uri) {
-    var promise = $http.get(uri, { headers: AccessToken.getAuthHeader() });
+    var promise = $http.get(uri);
     promise.success(function(response) {
         profile = response;
         $rootScope.$broadcast('oauth:profile', profile);
@@ -472,18 +450,16 @@ profileClient.factory('Profile', function($http, AccessToken, $rootScope) {
 });
 
 
-var interceptorService = angular.module('oauth.interceptor', 
-    ['http-auth-interceptor-buffer']);
-
-interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector',
-    'AccessToken', 'RefreshPoint', 'httpBuffer',
-    function ($rootScope, $q, $injector, AccessToken, RefreshPoint, httpBuffer) {
+angular.module('oauth.interceptor', [])
+        
+.factory('ExpiredInterceptor', ['$q', 'AccessToken', 'httpBuffer',
+    function ($q, AccessToken, httpBuffer) {
 
         var service = {};
         
         service.responseError = function (response) {
             if (response.status === 401) {
-                var refresh_url = RefreshPoint.get();
+                var refresh_url = AccessToken.getRefreshUrl();
                 //The refresh_url will be empty if there is no refresh key available
                 //In that case there is no need at all to even try to do a refresh                
                 if (refresh_url) {
@@ -491,54 +467,14 @@ interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector
                     httpBuffer.append(response.config, deferred, true);
                     
                     if (AccessToken.getSemaphore()){
-                        
                         //If a refresh is already going on, it makes no sense to do another one
                         //and also, if that one failed or the refresh token is empty
                         //we can signal it like this, until a successfull token set 
                         //is retrieved in which case the 'semaphore is released'
                         //This release also happens upon session destroy (logout for
                         //example).
-                        var $http = $injector.get('$http');
-                        RefreshPoint.refresh($http);
-//                        
-//                        AccessToken.setSemaphore(false);
-//                        
-//                        var refresh_config = {
-//                            method: 'GET',
-//                            url: refresh_url,
-//                            is_refresh: true
-//                        };
-//                        var $http = $injector.get('$http');
-//                        $http(refresh_config).success(function(refresh_result){
-//                            var new_tokens = false;
-//                            if (refresh_result) {
-//                                if (refresh_result.tokens_enc) {
-//                                    new_tokens = true;
-//                                    AccessToken.setTokenFromStruct(refresh_result.tokens_enc, true);
-//                                } else if(refresh_result.tokens) {
-//                                    new_tokens = true;
-//                                    AccessToken.setTokenFromStruct(refresh_result.tokens, false);
-//                                }
-//                            }
-//
-//                            if (new_tokens) {
-//                                var updater_fun = function(config){
-//                                    var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
-//                                    config.url += appendChar + "test=1";
-//                                    return config;
-//                                };
-//                                //updater_fun = null;
-//                                httpBuffer.retryAll(updater_fun);
-//                            } else {
-//                                AccessToken.destroy();
-//                                $rootScope.$broadcast('oauth:logout');
-//                                httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
-//                            }
-//                        }).error(function(error_str) {
-//                            AccessToken.destroy();
-//                            httpBuffer.rejectAll('failed: '+ error_str);
-//                            $rootScope.$broadcast('oauth:logout');
-//                        });
+                        AccessToken.refresh();
+                        
                     } else {
                         console.log('The request was denied for so long because the user was no'+
                            ' longer logged in and there is an attempt to refresh the session' +
@@ -573,9 +509,9 @@ interceptorService.factory('ExpiredInterceptor', ['$rootScope', '$q', '$injector
 /**
  * Private module, a utility, required internally by 'http-auth-interceptor'.
  */
-angular.module('http-auth-interceptor-buffer', [])
-
-.factory('httpBuffer', ['AccessToken', '$injector', function (AccessToken, $injector) {
+angular.module('oauth.interceptor-buffer', [])
+    
+.factory('httpBuffer', ['$injector', function ($injector) {
     // from: https://github.com/witoldsz/angular-http-auth/blob/master/src/http-auth-interceptor.js
     /** Holds all the requests, so they can be re-requested in future. */
     var buffer = [];
@@ -590,7 +526,6 @@ angular.module('http-auth-interceptor-buffer', [])
         function errorCallback(response) {
             deferred.reject(response);
         }
-        console.log('trying again ', config.url);
         $http = $http || $injector.get('$http');
         $http(config).then(successCallback, errorCallback);
     }
@@ -633,9 +568,8 @@ angular.module('http-auth-interceptor-buffer', [])
                         buffer[i].config.headers = {};
                     if (updater)
                         updater(buffer[i].config);
-                    console.log('Some call that never made it before ', buffer[i].config.url);
                     
-                    angular.extend(buffer[i].config.headers, AccessToken.getAuthHeader());
+                    //angular.extend(buffer[i].config.headers, AccessToken.getAuthHeader());
                     buffer[i].deferred.resolve(buffer[i].config);
                 }
             }
@@ -644,9 +578,9 @@ angular.module('http-auth-interceptor-buffer', [])
     };
 }]);
 
-var directives = angular.module('oauth.directive', []);
-
-directives.directive('oauth', function(AccessToken, AuthorisationEndPoint, RefreshPoint, Profile, $location, $rootScope, $compile, $http, $templateCache) {
+angular.module('oauth.directive', [])
+        
+.directive('oauth', function(AccessToken, Profile, $rootScope, $compile, $http, $templateCache) {
 
   var definition = {
     restrict: 'AE',
@@ -665,7 +599,8 @@ directives.directive('oauth', function(AccessToken, AuthorisationEndPoint, Refre
       authorizePath: '@', // (optional) authorization url
       state: '@',          // (optional) An arbitrary unique string created by your app to guard against Cross-site Request Forgery
       accessType: '@',
-      approvalPrompt: '@'
+      approvalPrompt: '@',
+      encrypt: '@'
     }
   };
 
@@ -677,9 +612,7 @@ directives.directive('oauth', function(AccessToken, AuthorisationEndPoint, Refre
     var init = function() {
       initAttributes();          // sets defaults
       compile();                 // compiles the desired layout
-      AuthorisationEndPoint.set(scope);       // sets the oauth authorization url
       AccessToken.set(scope);    // sets the access token object (if existing, from fragment or session)
-      RefreshPoint.set(scope);
       initProfile(scope);        // gets the profile resource (if existing the access token)
       initView();                // sets the view (logged in or out)
     };
@@ -695,6 +628,7 @@ directives.directive('oauth', function(AccessToken, AuthorisationEndPoint, Refre
       scope.scope         = scope.scope         || undefined;
       scope.accessType    = scope.accessType    || undefined;
       scope.approvalPrompt = (scope.approvalPrompt === 'force')?true:false;
+      scope.encrypt       = scope.encrypt       || false;
       
     };
 
@@ -739,7 +673,7 @@ directives.directive('oauth', function(AccessToken, AuthorisationEndPoint, Refre
     };
 
     scope.login = function() {
-      AuthorisationEndPoint.redirect();
+      AccessToken.authRedirect();
     };
 
     scope.logout = function() {
