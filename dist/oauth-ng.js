@@ -1,4 +1,7 @@
-/* oauth-ng - v0.3.0 - 2015-06-11 */
+/* oauth-ng - v0.3.1 - 2015-08-21 
+ *  -Both encrypted and unencrypted
+ *  -Handling a state variable sent along (a 'state' parameter is allowed by oidc)
+ * */
 //This directive indicates executing the rest of this js file in 
 //strict modus (see further http://www.w3schools.com/js/js_strict.asp)
 'use strict';
@@ -80,16 +83,18 @@ angular.module('oauth.accessToken', ['ngStorage'])
                 key: this.getEcryptionKey(),
                 state: this.state
             };
-            return Crypto.util.bytesToBase64(Crypto.charenc.UTF8.stringToBytes(Object.toJSON(obj)));
+            return CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(obj)));
         }else{
             return this.state;
         }
     };
     
     service.unpackState = function(raw){
+        if(!raw) return '';
         if(Crypto && this.encrypt){
-            var jsonString = Crypto.charenc.UTF8.bytesToString(Crypto.util.base64ToBytes(raw));
-            var obj = jsonString.evalJSON();
+            var parsedWordArray = CryptoJS.enc.Base64.parse(raw);
+            var jsonString = parsedWordArray.toString(CryptoJS.enc.Utf8);
+            var obj = JSON.parse(jsonString);
             this.state = obj.state;
         }else{
             this.state = raw;
@@ -125,7 +130,8 @@ angular.module('oauth.accessToken', ['ngStorage'])
     };
     
     service.authRedirect = function() {
-        window.location.replace(this.getAuthUrl());
+        var url = this.getAuthUrl();
+        window.location.replace(url);
     };
   
     service.getRefreshUrl = function(){
