@@ -66,9 +66,40 @@ angular.module('oauth.accessToken', ['ngStorage'])
         return this.token;
     };
     
+    service.getState = function(){
+        return this.state;
+    };
+    
+    service.setState = function(state){
+        this.state = state;
+    };
+    
+    service.packState = function(){
+        if(Crypto && this.encrypt){
+            var obj = {
+                key: this.getEcryptionKey(),
+                state: this.state
+            };
+            return Crypto.util.bytesToBase64(Crypto.charenc.UTF8.stringToBytes(Object.toJSON(obj)));
+        }else{
+            return this.state;
+        }
+    };
+    
+    service.unpackState = function(raw){
+        if(Crypto && this.encrypt){
+            var jsonString = Crypto.charenc.UTF8.bytesToString(Crypto.util.base64ToBytes(raw));
+            var obj = jsonString.evalJSON();
+            this.state = obj.state;
+        }else{
+            this.state = raw;
+        }
+        return this.state;
+    };
+    
     service.getAuthUrl = function(){
-        var state = (this.encrypt)?service.getEcryptionKey(this.state):this.state;
-        return this.auth_url + ((this.auth_url.indexOf('?') == -1)? '?' : '&') + 'state=' + state;
+        //var state = (this.encrypt)?service.getEcryptionKey(this.state):this.state;
+        return this.auth_url + ((this.auth_url.indexOf('?') == -1)? '?' : '&') + 'state=' + this.packState();
         
     };
     
@@ -99,9 +130,9 @@ angular.module('oauth.accessToken', ['ngStorage'])
   
     service.getRefreshUrl = function(){
         if (this.token && this.token.refresh_token){
-            var state = (this.encrypt)?service.getEcryptionKey(this.state):this.state;
+            //var state = (this.encrypt)?service.getEcryptionKey(this.state):this.state;
             return this.refresh_url + ((this.refresh_url.indexOf('?') == -1)? '?' : '&') 
-                    + 'state=' + state
+                    + 'state=' + this.packState()
                     + '&refresh_token=' + this.token.refresh_token;
         } else {
             return '';
@@ -313,6 +344,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
     var setToken = function(params){
         params = filterParams(params);
         service.token = service.token || {};    // init the token
+        params.state = service.unpackState(params.state);
         angular.extend(service.token, params);  // set the access token params
         setTokenInSession();                    // save the token into the session
         setExpiresAtEvent();                    // event to fire when the token expires
