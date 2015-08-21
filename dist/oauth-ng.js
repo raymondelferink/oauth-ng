@@ -1,7 +1,4 @@
-/* oauth-ng - v0.3.1 - 2015-08-21 
- *  -Both encrypted and unencrypted
- *  -Handling a state variable sent along (a 'state' parameter is allowed by oidc)
- * */
+/* oauth-ng - v0.3.0 - 2015-06-11 */
 //This directive indicates executing the rest of this js file in 
 //strict modus (see further http://www.w3schools.com/js/js_strict.asp)
 'use strict';
@@ -53,6 +50,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * - takes the token from the localStorage
      */
     service.set = function(params){
+        console.log('service.set hola met ', params, $location.hash());
         if(params){
             this.setAuthUrl(params);
             this.setRefreshUrl(params);
@@ -111,20 +109,23 @@ angular.module('oauth.accessToken', ['ngStorage'])
     service.setAuthUrl = function(params) {
         var oAuthScope = (params.scope) ? params.scope : '',
             accessType = (params.accessType) ? params.accessType : '',
-            approvalPrompt = (params.approvalPrompt)? true:false;
+            approvalPrompt = (params.approvalPrompt)? '&approval_prompt=force' : '';
+        //Make it possible to test with encryption flexibly and also, to make it possible\
+        //from mobile apps as this is not longer the default at the server
+        if (params.encrypt) this.encrypt = params.encrypt;
         if (params.fullsite) {
             this.auth_url = params.fullsite ;
         } else {
             //if authorizePath has ? already, append OAuth2 params
             var appendChar = (params.authorizePath.indexOf('?') == -1) ? '?' : '&';
-            this.auth_url = params.site +
-              params.authorizePath +
-              appendChar + 'response_type='+params.responseType+'&' +
+            this.auth_url = params.site + params.authorizePath +appendChar + 
+              'response_type='+params.responseType+'&' +
               'client_id=' + encodeURIComponent(params.clientId) + '&' +
               'redirect_uri=' + encodeURIComponent(params.redirectUri) + '&' +
               'scope=' + oAuthScope + '&' +                  
-              'access_type='+ accessType;
-            if(approvalPrompt) this.auth_url += '&approval_prompt=force';
+              'access_type='+ accessType +
+              approvalPrompt;
+            ;
         }
         return this.auth_url;
     };
@@ -152,7 +153,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
     };
     
     service.getAuthHeader = function(){
-        if(this.token){
+        if (this.token){
             return {
                 Authorization : 'Bearer ' + this.token.access_token
             }
@@ -315,6 +316,31 @@ angular.module('oauth.accessToken', ['ngStorage'])
         }
     };
 
+    service.b64_decode = function(str){
+        var auth_enc_words = CryptoJS.enc.Base64.parse(str);
+        return auth_enc_words.toString(CryptoJS.enc.Utf8);
+    };
+    
+    service.aes_decrypt = function(str, key){
+        var CryptoJSAesJson = {
+            stringify: function (cipherParams) {
+                var j = {ct: cipherParams.ciphertext.toString(CryptoJS.enc.Base64)};
+                if (cipherParams.iv) j.iv = cipherParams.iv.toString();
+                if (cipherParams.salt) j.s = cipherParams.salt.toString();
+                return JSON.stringify(j);
+            },
+            parse: function (jsonStr) {
+                var j = JSON.parse(jsonStr);
+                var cipherParams = CryptoJS.lib.CipherParams.create({ciphertext: CryptoJS.enc.Base64.parse(j.ct)});
+                if (j.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(j.iv);
+                if (j.s) cipherParams.salt = CryptoJS.enc.Hex.parse(j.s);
+                return cipherParams;
+            }
+        };
+        var decrypted_words = CryptoJS.AES.decrypt(str, key, {format: CryptoJSAesJson});
+        return JSON.parse(decrypted_words.toString(CryptoJS.enc.Utf8));
+    }
+    
     service.getEcryptionKey = function (prefix) {
         if(!prefix) prefix = '';
         if (!$sessionStorage.encrypt_key) {
@@ -650,7 +676,8 @@ angular.module('oauth.directive', [])
     var init = function() {
       initAttributes();          // sets defaults
       compile();                 // compiles the desired layout
-      AccessToken.set(scope);    // sets the access token object (if existing, from fragment or session)
+      console.log('start hier de settings van de AccessToken met scope', scope);
+        AccessToken.set(scope);    // sets the access token object (if existing, from fragment or session)
       initProfile(scope);        // gets the profile resource (if existing the access token)
       initView();                // sets the view (logged in or out)
     };
@@ -743,7 +770,8 @@ angular.module('oauth.directive', [])
       compile(scope);
     });
 
-    // Hack to update the directive content on logout
+
+    // Update the directive content on logout
     // TODO think to a cleaner solution
     scope.$on('$routeChangeSuccess', function () {
       init();
