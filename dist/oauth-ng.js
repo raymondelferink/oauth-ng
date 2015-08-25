@@ -54,7 +54,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if(params){
             this.setAuthUrl(params);
             this.setRefreshUrl(params);
-            this.state = (params.state) ? encodeURIComponent(params.state) : $location.absUrl();
+            this.state = (params.state) ? params.state : $location.absUrl();
             this.encrypt = (params.encrypt)?true:false;
         }
         this.setTokenFromString($location.hash());
@@ -83,7 +83,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             };
             return CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(obj)));
         }else{
-            return this.state;
+            return encodeURIComponent(this.state);
         }
     };
     
