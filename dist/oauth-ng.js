@@ -54,7 +54,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if(params){
             this.setAuthUrl(params);
             this.setRefreshUrl(params);
-            this.state = (params.state) ? encodeURIComponent(params.state) : '';
+            this.state = (params.state) ? encodeURIComponent(params.state) : $location.absUrl();
             this.encrypt = (params.encrypt)?true:false;
         }
         this.setTokenFromString($location.hash());
