@@ -309,6 +309,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
                 var decrypted_words = CryptoJS.AES.decrypt(params, key, {format: CryptoJSAesJson});
                 params = JSON.parse(decrypted_words.toString(CryptoJS.enc.Utf8));
                 
+                params.state = service.unpackState(params.state);
             }
             setToken(params);
             setExpiresAt();
@@ -376,7 +377,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
     var setToken = function(params){
         params = filterParams(params);
         service.token = service.token || {};    // init the token
-        params.state = service.unpackState(params.state);
         angular.extend(service.token, params);  // set the access token params
         setTokenInSession();                    // save the token into the session
         setExpiresAtEvent();                    // event to fire when the token expires
