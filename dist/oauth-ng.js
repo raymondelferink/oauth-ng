@@ -50,7 +50,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * - takes the token from the localStorage
      */
     service.set = function(params){
-        console.log('service.set hola met ', params, $location.hash());
         if(params){
             this.setAuthUrl(params);
             this.setRefreshUrl(params);
@@ -58,12 +57,11 @@ angular.module('oauth.accessToken', ['ngStorage'])
             this.encrypt = (params.encrypt)?true:false;
         }
         this.setTokenFromString($location.hash());
-
+        
         //If hash is present in URL always use it, cuz its coming from oAuth2 provider redirect
-        if(null === service.token){
-            setTokenFromSession();
+        if(null === this.token){
+            setTokenFromSession();//this is a private function
         }
-
         return this.token;
     };
     
@@ -79,11 +77,11 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if(Crypto && this.encrypt){
             var obj = {
                 key: this.getEcryptionKey(),
-                state: this.state
+                state: this.getState()
             };
             return CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(obj)));
-        }else{
-            return encodeURIComponent(this.state);
+        } else {
+            return encodeURIComponent(this.getState());
         }
     };
     
@@ -94,14 +92,13 @@ angular.module('oauth.accessToken', ['ngStorage'])
             var jsonString = parsedWordArray.toString(CryptoJS.enc.Utf8);
             var obj = JSON.parse(jsonString);
             this.state = obj.state;
-        }else{
+        } else {
             this.state = raw;
         }
         return this.state;
     };
     
     service.getAuthUrl = function(){
-        //var state = (this.encrypt)?service.getEcryptionKey(this.state):this.state;
         return this.auth_url + ((this.auth_url.indexOf('?') == -1)? '?' : '&') + 'state=' + this.packState();
         
     };
@@ -137,7 +134,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
   
     service.getRefreshUrl = function(){
         if (this.token && this.token.refresh_token){
-            //var state = (this.encrypt)?service.getEcryptionKey(this.state):this.state;
             return this.refresh_url + ((this.refresh_url.indexOf('?') == -1)? '?' : '&') 
                     + 'state=' + this.packState()
                     + '&refresh_token=' + this.token.refresh_token;
@@ -146,8 +142,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         }
     };
     
-    service.setRefreshUrl = function(params) {
-        
+    service.setRefreshUrl = function (params) {
         this.refresh_url = params.refreshUri;
         return this.refresh_url;
     };
@@ -157,7 +152,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             return {
                 Authorization : 'Bearer ' + this.token.access_token
             }
-        }else{
+        } else {
             return {};
         }
     }
@@ -222,6 +217,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             is_refresh: true
         };
         var $http = $injector.get('$http');
+        
         $http(refresh_config).success(function(refresh_result){
             var new_tokens = false;
             if (refresh_result) {
@@ -232,7 +228,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
                     new_tokens = true;
                     service.setTokenFromStruct(refresh_result.tokens, false);
                 }
-                
             }
 
             if (new_tokens) {
@@ -269,7 +264,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
      */
     service.setTokenFromString = function(hash){
         var params = getTokenFromString(hash);
-
         if(params){
             removeFragment();
             setToken(params);
@@ -286,30 +280,10 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if(params){
             if(CryptoJS && decrypt){
                 var key = this.getEcryptionKey();
-                this.deleteEncryptionKey();
-                
-                var CryptoJSAesJson = {
-                    stringify: function (cipherParams) {
-                        var j = {ct: cipherParams.ciphertext.toString(CryptoJS.enc.Base64)};
-                        if (cipherParams.iv) j.iv = cipherParams.iv.toString();
-                        if (cipherParams.salt) j.s = cipherParams.salt.toString();
-                        return JSON.stringify(j);
-                    },
-                    parse: function (jsonStr) {
-                        var j = JSON.parse(jsonStr);
-                        var cipherParams = CryptoJS.lib.CipherParams.create({ciphertext: CryptoJS.enc.Base64.parse(j.ct)});
-                        if (j.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(j.iv);
-                        if (j.s) cipherParams.salt = CryptoJS.enc.Hex.parse(j.s);
-                        return cipherParams;
-                    }
-                }; 
-
-                var auth_enc_words = CryptoJS.enc.Base64.parse(params);//auth_enc_64
-                params = auth_enc_words.toString(CryptoJS.enc.Utf8);//auth_enc
-                var decrypted_words = CryptoJS.AES.decrypt(params, key, {format: CryptoJSAesJson});
-                params = JSON.parse(decrypted_words.toString(CryptoJS.enc.Utf8));
-                
-                params.state = service.unpackState(params.state);
+                this.deleteEncryptionKey();                
+                var encr_str = service.b64_decode(params);
+                params = service.aes_decrypt(encr_str, key);                
+                params.state = service.unpackState(params.state); 
             }
             setToken(params);
             setExpiresAt();
@@ -354,7 +328,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
             }
             $sessionStorage.encrypt_key = prefix+encrypt_key;
         }
-
         return $sessionStorage.encrypt_key;
     };
     
@@ -401,6 +374,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if (params.access_token || params.error) {
             return params;
         }
+        return null;
     };
 
     /**
@@ -671,13 +645,12 @@ angular.module('oauth.directive', [])
   definition.link = function postLink(scope, element, attrs) {
     scope.show = 'none';
 
-    scope.$watch('clientId', function(value) { init() });
+    scope.$watch('clientId', function() { init() });
 
     var init = function() {
       initAttributes();          // sets defaults
       compile();                 // compiles the desired layout
-      console.log('start hier de settings van de AccessToken met scope', scope);
-        AccessToken.set(scope);    // sets the access token object (if existing, from fragment or session)
+      AccessToken.set(scope);    // sets the access token object (if existing, from fragment or session)
       initProfile(scope);        // gets the profile resource (if existing the access token)
       initView();                // sets the view (logged in or out)
     };
@@ -770,11 +743,9 @@ angular.module('oauth.directive', [])
       compile(scope);
     });
 
-
-    // Update the directive content on logout
-    // TODO think to a cleaner solution
     scope.$on('$routeChangeSuccess', function () {
-      init();
+        // Update the directive content on logout
+        initView();
     });
   };
 
