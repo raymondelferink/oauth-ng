@@ -237,6 +237,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
                     return config;
                 };
                 //updater_fun = null;
+                service.setSemaphore(true);
                 httpBuffer.retryAll(updater_fun);
             } else {
                 service.destroy();
@@ -353,7 +354,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
         angular.extend(service.token, params);  // set the access token params
         setTokenInSession();                    // save the token into the session
         setExpiresAtEvent();                    // event to fire when the token expires
-        service.setSemaphore(true);
         return service.token;
     };
 
@@ -496,10 +496,13 @@ angular.module('oauth.interceptor', [])
         var service = {};
         
         service.responseError = function (response) {
-            if (response.status === 401) {
+            if (response.status === 401 && !response.config.retry) {
                 var refresh_url = AccessToken.getRefreshUrl();
                 //The refresh_url will be empty if there is no refresh key available
                 //In that case there is no need at all to even try to do a refresh                
+                
+                console.log('In ExpiredInterceptor, attempting a refresh ');
+                //, refresh_url, AccessToken.get(), response, AccessToken.getSemaphore());
                 if (refresh_url) {
                     var deferred = $q.defer();
                     httpBuffer.append(response.config, deferred, true);
@@ -511,6 +514,7 @@ angular.module('oauth.interceptor', [])
                         //is retrieved in which case the 'semaphore is released'
                         //This release also happens upon session destroy (logout for
                         //example).
+              
                         AccessToken.refresh();
                         
                     } else {
@@ -524,6 +528,9 @@ angular.module('oauth.interceptor', [])
                     console.log('The request was denied because the user was no'+
                        ' longer logged in and no refresh token was found .');
                 }
+            }
+            if (response.config.retry){
+                console.log('The request has failed a second time. Rejected.');
             }
             return $q.reject(response);
             
@@ -597,6 +604,7 @@ angular.module('oauth.interceptor-buffer', [])
          */
         retryAll: function (updater) {
             for (var i = 0; i < buffer.length; ++i) {
+                buffer[i].config.retry = true;
                 if (buffer[i].resend) {
                     if (updater)
                         buffer[i].config = updater(buffer[i].config);
