@@ -74,7 +74,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
     };
     
     service.packState = function(){
-        if(Crypto && this.encrypt){
+        if(CryptoJS && this.encrypt){
             var obj = {
                 key: this.getEcryptionKey(),
                 state: this.getState()
@@ -87,7 +87,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
     
     service.unpackState = function(raw){
         if(!raw) return '';
-        if(Crypto && this.encrypt){
+        if(CryptoJS && this.encrypt){
             var parsedWordArray = CryptoJS.enc.Base64.parse(raw);
             var jsonString = parsedWordArray.toString(CryptoJS.enc.Utf8);
             var obj = JSON.parse(jsonString);
