@@ -74,11 +74,18 @@ angular.module('oauth.accessToken', ['ngStorage'])
     };
     
     service.packState = function(){
-        if(CryptoJS && this.encrypt){
+        if(CryptoJS){
             var obj = {
-                key: this.getEcryptionKey(),
                 state: this.getState()
             };
+            if(this.encrypt){
+                obj.key = this.getEcryptionKey();
+                
+            } else {
+                
+            }
+            
+        console.log('pack', obj);
             return CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(obj)));
         } else {
             return encodeURIComponent(this.getState());
@@ -87,7 +94,10 @@ angular.module('oauth.accessToken', ['ngStorage'])
     
     service.unpackState = function(raw){
         if(!raw) return '';
-        if(CryptoJS && this.encrypt){
+        if(CryptoJS){
+            if(this.encrypt){
+                //do something if encrypted
+            }
             var parsedWordArray = CryptoJS.enc.Base64.parse(raw);
             var jsonString = parsedWordArray.toString(CryptoJS.enc.Utf8);
             var obj = JSON.parse(jsonString);
@@ -95,6 +105,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         } else {
             this.state = raw;
         }
+        console.log('unpack', this.state);
         return this.state;
     };
     
@@ -267,6 +278,9 @@ angular.module('oauth.accessToken', ['ngStorage'])
         var params = getTokenFromString(hash);
         if(params){
             removeFragment();
+            if(CryptoJS){
+                params.state = service.unpackState(params.state);
+            }
             setToken(params);
             setExpiresAt();
             $rootScope.$broadcast('oauth:login', service.token);
@@ -279,12 +293,15 @@ angular.module('oauth.accessToken', ['ngStorage'])
      */
     service.setTokenFromStruct = function(params, decrypt){
         if(params){
-            if(CryptoJS && decrypt){
-                var key = this.getEcryptionKey();
-                this.deleteEncryptionKey();                
-                var encr_str = service.b64_decode(params);
-                params = service.aes_decrypt(encr_str, key);                
-                params.state = service.unpackState(params.state); 
+            if(CryptoJS){ 
+                if(decrypt){
+                    var key = this.getEcryptionKey();
+                    this.deleteEncryptionKey();                
+                    var encr_str = service.b64_decode(params);
+                    params = service.aes_decrypt(encr_str, key);                
+                     
+                }
+                params.state = service.unpackState(params.state);
             }
             setToken(params);
             setExpiresAt();
