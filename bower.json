@@ -15,7 +15,8 @@
   ],
   "dependencies": {
     "angular": "~1.2.26",
-    "ngstorage": "~0.3.0"
+    "ngstorage": "~0.3.0",
+    "cryptojslib": "*"
   },
   "devDependencies": {
     "json3": "~3.2.4",
