@@ -281,6 +281,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             removeFragment();
             if(CryptoJS){
                params.state = service.unpackState(params.state);
+                params.state = service.unpackState(params.state);
             }
             setToken(params);
             setExpiresAt();
