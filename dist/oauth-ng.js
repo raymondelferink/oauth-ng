@@ -783,7 +783,9 @@ angular.module('oauth.directive', [])
     });
 
     scope.$on('$routeChangeSuccess', function () {
+        // Update the directive rendering on logout
         initView();
+        // Update profile
         initProfile(scope);
     });
   };
