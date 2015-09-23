@@ -50,7 +50,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * - takes the token from the localStorage
      */
     service.set = function(params){
-        if(params){
+        if (params){
             this.setAuthUrl(params);
             this.setRefreshUrl(params);
             this.state = (params.state) ? params.state : $location.absUrl();
@@ -59,7 +59,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         this.setTokenFromString($location.hash());
         
         //If hash is present in URL always use it, cuz its coming from oAuth2 provider redirect
-        if(null === this.token){
+        if (null === this.token){
             setTokenFromSession();//this is a private function
         }
         return this.token;
@@ -127,12 +127,12 @@ angular.module('oauth.accessToken', ['ngStorage'])
         return this.auth_url;
     };
     
-    service.authRedirect = function() {
+    service.authRedirect = function () {
         var url = this.getAuthUrl();
         window.location.replace(url);
     };
   
-    service.getRefreshUrl = function(){
+    service.getRefreshUrl = function (){
         if (this.token && this.token.refresh_token){
             return this.refresh_url + ((this.refresh_url.indexOf('?') == -1)? '?' : '&') 
                     + 'state=' + this.packState()
@@ -151,11 +151,11 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if (this.token){
             return {
                 Authorization : 'Bearer ' + this.token.access_token
-            }
+            };
         } else {
             return {};
         }
-    }
+    };
     
     /**
      * Returns the refresh semaphore.
@@ -177,7 +177,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         }
 
         //If hash is present in URL always use it, cuz its coming from oAuth2 provider redirect
-        if(null === service.refresh_semaphore){
+        if (null === service.refresh_semaphore){
             var set_from_session = setSemaphoreFromSession();
             if (!set_from_session){
                 this.refresh_semaphore = true;
@@ -256,7 +256,8 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * Tells if the access token is expired.
      */
     service.expired = function(){
-        return (this.token && this.token.expires_at && this.token.expires_at<new Date());
+        return (this.token && this.token.expires_at && 
+          this.token.expires_at < new Date());
     };
 
     /**
@@ -265,7 +266,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
      */
     service.setTokenFromString = function(hash){
         var params = getTokenFromString(hash);
-        if(params){
+        if (params){
             removeFragment();
             setToken(params);
             setExpiresAt();
@@ -278,7 +279,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * @param params
      */
     service.setTokenFromStruct = function(params, decrypt){
-        if(params){
+        if (params){
             if(CryptoJS && decrypt){
                 var key = this.getEcryptionKey();
                 this.deleteEncryptionKey();                
@@ -318,7 +319,9 @@ angular.module('oauth.accessToken', ['ngStorage'])
     }
     
     service.getEcryptionKey = function (prefix) {
-        if(!prefix) prefix = '';
+        if (!prefix) {
+            prefix = '';
+        }
         if (!$sessionStorage.encrypt_key) {
             var encrypt_key = '';
             var key_length = 20;
@@ -411,7 +414,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * Set the access token expiration date (useful for refresh logics)
      */
     var setExpiresAt = function(){
-        if(service.token){
+        if (service.token){
             var expires_at = new Date();
             expires_at.setSeconds(expires_at.getSeconds()+parseInt(service.token.expires_in)-60); // 60 seconds less to secure browser and response latency
             service.token.expires_at = expires_at;
@@ -423,7 +426,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
      */
     var setExpiresAtEvent = function(){
         var time = (new Date(service.token.expires_at))-(new Date());
-        if(time){
+        if (time){
             $interval(function(){
                 $rootScope.$broadcast('oauth:expired', service.token)
             }, time, 1)
@@ -452,7 +455,9 @@ angular.module('oauth.accessToken', ['ngStorage'])
     var filterParams = function(params){
         var checkedParams = {};
         angular.forEach(oAuth2HashTokens,function(hashKey){
-            if(params[hashKey]) checkedParams[hashKey] = params[hashKey];
+            if (params[hashKey]) {
+                checkedParams[hashKey] = params[hashKey];
+            }
         });
         return checkedParams;
     };
@@ -475,7 +480,7 @@ angular.module('oauth.profile', [])
     return promise;
   };
 
-  service.get = function(uri) {
+  service.get = function() {
     return profile;
   };
 
@@ -502,7 +507,6 @@ angular.module('oauth.interceptor', [])
                 //In that case there is no need at all to even try to do a refresh                
                 
                 console.log('In ExpiredInterceptor, attempting a refresh ');
-                //, refresh_url, AccessToken.get(), response, AccessToken.getSemaphore());
                 if (refresh_url) {
                     var deferred = $q.defer();
                     httpBuffer.append(response.config, deferred, true);
@@ -514,9 +518,7 @@ angular.module('oauth.interceptor', [])
                         //is retrieved in which case the 'semaphore is released'
                         //This release also happens upon session destroy (logout for
                         //example).
-              
                         AccessToken.refresh();
-                        
                     } else {
                         console.log('The request was denied for so long because the user was no'+
                            ' longer logged in and there is an attempt to refresh the session' +
@@ -530,7 +532,7 @@ angular.module('oauth.interceptor', [])
                 }
             }
             if (response.config.retry){
-                console.log('The request has failed a second time. Rejected.');
+                console.log('The request has failed a second time. Rejected now.');
             }
             return $q.reject(response);
             
@@ -541,7 +543,7 @@ angular.module('oauth.interceptor', [])
                if(!config.headers) config.headers = {};
                 angular.extend(config.headers, AccessToken.getAuthHeader());
                 return config;
-            }else {
+            } else {
                 var deferred = $q.defer();
                 httpBuffer.append(config, deferred, false);
                 return deferred.promise;
@@ -580,22 +582,25 @@ angular.module('oauth.interceptor-buffer', [])
          * Appends HTTP request configuration object with deferred response attached to buffer.
          */
         append: function (config, deferred, resend) {
-            if (!resend)
+            if (!resend){
                 resend = false;
+            }
             buffer.push({
                 config: config,
                 deferred: deferred,
-                resend: resend
+                resend: resend,
+                key: config.method+config.url
             });
         },
         /**
-         * Abandon or reject (if reason provided) all the buffered requests.
+         * Abandon or reject all the buffered requests.
          */
         rejectAll: function (reason) {
-            if (reason) {
-                for (var i = 0; i < buffer.length; ++i) {
-                    buffer[i].deferred.reject(reason);
-                }
+            //rejecting without a reason is not permitted. There should be a non-
+            //empty string
+            reason = reason ? reason : 'Rejecting all requests';
+            for (var i = 0; i < buffer.length; ++i) {
+                buffer[i].deferred.reject(reason);
             }
             buffer = [];
         },
@@ -610,11 +615,12 @@ angular.module('oauth.interceptor-buffer', [])
                         buffer[i].config = updater(buffer[i].config);
                     retryHttpRequest(buffer[i].config, buffer[i].deferred);
                 } else {
-                    if (!buffer[i].config.headers)
+                    if (!buffer[i].config.headers){
                         buffer[i].config.headers = {};
-                    if (updater)
+                    }
+                    if (updater){
                         updater(buffer[i].config);
-                    
+                    }
                     //angular.extend(buffer[i].config.headers, AccessToken.getAuthHeader());
                     buffer[i].deferred.resolve(buffer[i].config);
                 }
@@ -694,6 +700,8 @@ angular.module('oauth.directive', [])
       if (token && token.access_token) {
         Profile.find(scope.profileUri).success(function(response) {
           if (! response || !response.user_code){
+              //This should never occur: if the server responds with a 200, the 
+              //record should have a valid profile in the response
               scope.profile = null;
               scope.logout();
           } else {
@@ -706,16 +714,22 @@ angular.module('oauth.directive', [])
       } else if (scope.show == 'logged-in') {
             scope.logout();
       } else {
-         
+         //The case that the user is anonymous
       }
     };
 
     var initView = function() {
-      var token = AccessToken.get();
-
-      if (!token)             { return loggedOut()  }  // without access token it's logged out
-      if (token.access_token) { return authorized() }  // if there is the access token we are done
-      if (token.error)        { return denied()     }  // if the request has been denied we fire the denied event
+       //When a refresh is going on, it makes no sense to already change the
+       //view based on the current expired status
+        if (AccessToken.getSemaphore()){
+            
+            var token = AccessToken.get();
+            if (!token)             { return loggedOut()  }  // without access token it's logged out
+            if (token.access_token) { return authorized() }  // if there is the access token we are done
+            if (token.error)        { return denied()     }  // if the request has been denied we fire the denied event
+        } else {
+            console.log('A refresh was going on.');
+        }
     };
 
     scope.login = function() {
@@ -723,8 +737,8 @@ angular.module('oauth.directive', [])
     };
 
     scope.logout = function() {
-      AccessToken.destroy(scope);
-      loggedOut();
+        AccessToken.destroy(scope);
+        loggedOut();
     };
 
     // user is authorized
@@ -752,9 +766,7 @@ angular.module('oauth.directive', [])
     });
 
     scope.$on('$routeChangeSuccess', function () {
-        // Update the directive content on logout
         initView();
-        // Update profile
         initProfile(scope);
     });
   };
