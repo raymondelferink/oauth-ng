@@ -42,3 +42,4 @@ app/index-dev.html
 .idea
 
 bower_components
+/nbproject
