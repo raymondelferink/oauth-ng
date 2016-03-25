@@ -20,7 +20,7 @@ angular.module('oauth', [
 angular.module('oauth.accessToken', ['ngStorage'])
 
 .factory('AccessToken', function($rootScope, $location, $localStorage, $sessionStorage, $interval, $injector, httpBuffer){
-
+    
     var service = {
             token: null,
             auth_url: '',
@@ -32,8 +32,9 @@ angular.module('oauth.accessToken', ['ngStorage'])
         oAuth2HashTokens = [ 
             ////per http://tools.ietf.org/html/rfc6749#section-4.2.2
             // and http://tools.ietf.org/html/rfc6749#section-4.1.4
+            // expires_at for internal use
             'access_token', 'refresh_token', 'id_token',
-            'token_type', 'expires_in', 'scope', 'state',
+            'token_type', 'expires_in', 'expires_at', 'scope', 'state',
             'error', 'error_description'
         ]
         ;
@@ -83,7 +84,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             } else {
                 
             }
-            console.log('pack', obj);
+            
             return CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(obj)));
         } else {
             return encodeURIComponent(this.getState());
@@ -105,7 +106,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         } else {
             this.state = raw;
         }
-        console.log('unpack', this.state);
+        
         return this.state;
     };
     
@@ -215,6 +216,11 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * 
      */
     service.refresh = function(){
+        if(!service.getSemaphore()){
+            //refresh already in progress
+            return false;
+        }
+        
         var refresh_url = this.getRefreshUrl();
         if(!refresh_url){
             service.setSemaphore(true);
@@ -231,7 +237,11 @@ angular.module('oauth.accessToken', ['ngStorage'])
         
         $http(refresh_config).success(function(refresh_result){
             var new_tokens = false;
+            
             if (refresh_result) {
+                if (service.token){
+                    delete service.token.expires_at;
+                }
                 if (refresh_result.tokens_enc) {
                     new_tokens = true;
                     service.setTokenFromStruct(refresh_result.tokens_enc, true);
@@ -244,18 +254,23 @@ angular.module('oauth.accessToken', ['ngStorage'])
             if (new_tokens) {
                 var updater_fun = function(config){
                     var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
-                    config.url += appendChar + "test=1";
+                    //config.url += appendChar + "test=1";
                     return config;
                 };
                 //updater_fun = null;
                 service.setSemaphore(true);
                 httpBuffer.retryAll(updater_fun);
             } else {
+                console.log('refresh no tokens');
                 service.destroy();
                 $rootScope.$broadcast('oauth:logout');
                 httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
             }
+        
+            $rootScope.$broadcast('oauth:refresh');
+
         }).error(function(error_str) {
+            console.log('refresh failed', error_str);
             service.destroy();
             httpBuffer.rejectAll('failed: '+ error_str);
             $rootScope.$broadcast('oauth:logout');
@@ -283,7 +298,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
                params.state = service.unpackState(params.state);
             }
             setToken(params);
-            setExpiresAt();
             $rootScope.$broadcast('oauth:login', service.token);
         }
     };
@@ -305,7 +319,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
                 params.state = service.unpackState(params.state);
             }
             setToken(params);
-            setExpiresAt();
             $rootScope.$broadcast('oauth:login', service.token);
         }
     };
@@ -372,8 +385,8 @@ angular.module('oauth.accessToken', ['ngStorage'])
         params = filterParams(params);
         service.token = service.token || {};    // init the token
         angular.extend(service.token, params);  // set the access token params
+        setExpiresAt(true);                         // set expiry time
         setTokenInSession();                    // save the token into the session
-        setExpiresAtEvent();                    // event to fire when the token expires
         return service.token;
     };
 
@@ -430,23 +443,32 @@ angular.module('oauth.accessToken', ['ngStorage'])
     /**
      * Set the access token expiration date (useful for refresh logics)
      */
-    var setExpiresAt = function(){
-        if (service.token){
+    var setExpiresAt = function(setevent){
+        if (service.token && !service.token.expires_at){
+            
             var expires_at = new Date();
             expires_at.setSeconds(expires_at.getSeconds()+parseInt(service.token.expires_in)-60); // 60 seconds less to secure browser and response latency
             service.token.expires_at = expires_at;
+            
+            
+        }else if(service.token){
+            var time = (new Date(service.token.expires_at))-(new Date());
+            if(time <= 60000){
+                //if expired or expires within 60 sec
+                setevent = false;
+                service.refresh();
+                $rootScope.$broadcast('oauth:expired', service.token);
+            }
         }
-    };
-
-    /**
-     * Set the timeout at which the expired event is fired
-     */
-    var setExpiresAtEvent = function(){
-        var time = (new Date(service.token.expires_at))-(new Date());
-        if (time){
-            $interval(function(){
-                $rootScope.$broadcast('oauth:expired', service.token)
-            }, time, 1)
+        
+        if(setevent){
+            var time = (new Date(service.token.expires_at))-(new Date());
+            if (time){
+                $interval(function(){
+                    service.refresh();
+                    $rootScope.$broadcast('oauth:expired', service.token);
+                }, time, 1);
+            }
         }
     };
 
@@ -523,7 +545,6 @@ angular.module('oauth.interceptor', [])
                 //The refresh_url will be empty if there is no refresh key available
                 //In that case there is no need at all to even try to do a refresh                
                 
-                console.log('In ExpiredInterceptor, attempting a refresh ');
                 if (refresh_url) {
                     var deferred = $q.defer();
                     httpBuffer.append(response.config, deferred, true);
@@ -745,7 +766,7 @@ angular.module('oauth.directive', [])
             if (token.access_token) { return authorized() }  // if there is the access token we are done
             if (token.error)        { return denied()     }  // if the request has been denied we fire the denied event
         } else {
-            console.log('A refresh was going on.');
+            // refresh already in action
         }
     };
 
@@ -775,18 +796,26 @@ angular.module('oauth.directive', [])
       scope.show = 'denied';
       $rootScope.$broadcast('oauth:denied');
     };
+    
+    var redraw = function(){
+        // Update the directive rendering on logout
+        initView();
+        // Update profile
+        initProfile(scope);
+    };
 
     // Updates the template at runtime
     scope.$on('oauth:template:update', function(event, template) {
       scope.template = template;
       compile(scope);
     });
+    
+    scope.$on('oauth:refresh', function(){
+        redraw();
+    });
 
     scope.$on('$routeChangeSuccess', function () {
-        // Update the directive rendering on logout
-        initView();
-        // Update profile
-        initProfile(scope);
+        redraw();
     });
   };
 
