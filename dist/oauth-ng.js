@@ -452,14 +452,13 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if (service.token && !service.token.expires_at){
             
             var expires_at = new Date();
-            //expires_at.setSeconds(expires_at.getSeconds()+parseInt(service.token.expires_in)-60); // 60 seconds less to secure browser and response latency
-            expires_at.setSeconds(expires_at.getSeconds()+parseInt(service.token.expires_in)-3580); // 60 seconds less to secure browser and response latency
+            expires_at.setSeconds(expires_at.getSeconds()+parseInt(service.token.expires_in)-60); // 60 seconds less to secure browser and response latency
             service.token.expires_at = expires_at;
             
             
-        }else if(service.token){
+        } else if (service.token){
             var time = (new Date(service.token.expires_at))-(new Date());
-            if(time <= 60000){
+            if (time <= 60000){
                 //if expired or expires within 60 sec
                 setevent = false;
                 service.refresh();
@@ -467,7 +466,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             }
         }
         
-        if(setevent){
+        if (setevent){
             var time = (new Date(service.token.expires_at))-(new Date());
             if (time){
                 $interval(function(){
