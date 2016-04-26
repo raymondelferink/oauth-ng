@@ -216,12 +216,14 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * 
      */
     service.refresh = function(){
+        
         if(!service.getSemaphore()){
             //refresh already in progress
             return false;
         }
         
         var refresh_url = this.getRefreshUrl();
+        
         if(!refresh_url){
             service.setSemaphore(true);
             return false;
@@ -233,6 +235,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             url: refresh_url,
             is_refresh: true
         };
+        
         var $http = $injector.get('$http');
         
         $http(refresh_config).success(function(refresh_result){
@@ -255,13 +258,15 @@ angular.module('oauth.accessToken', ['ngStorage'])
                 var updater_fun = function(config){
                     var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
                     //config.url += appendChar + "test=1";
+                    
+                    angular.extend(config.headers, service.getAuthHeader());
+                    
                     return config;
                 };
                 //updater_fun = null;
                 service.setSemaphore(true);
                 httpBuffer.retryAll(updater_fun);
             } else {
-                console.log('refresh no tokens');
                 service.destroy();
                 $rootScope.$broadcast('oauth:logout');
                 httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
@@ -447,7 +452,8 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if (service.token && !service.token.expires_at){
             
             var expires_at = new Date();
-            expires_at.setSeconds(expires_at.getSeconds()+parseInt(service.token.expires_in)-60); // 60 seconds less to secure browser and response latency
+            //expires_at.setSeconds(expires_at.getSeconds()+parseInt(service.token.expires_in)-60); // 60 seconds less to secure browser and response latency
+            expires_at.setSeconds(expires_at.getSeconds()+parseInt(service.token.expires_in)-3580); // 60 seconds less to secure browser and response latency
             service.token.expires_at = expires_at;
             
             
@@ -659,7 +665,6 @@ angular.module('oauth.interceptor-buffer', [])
                     if (updater){
                         updater(buffer[i].config);
                     }
-                    //angular.extend(buffer[i].config.headers, AccessToken.getAuthHeader());
                     buffer[i].deferred.resolve(buffer[i].config);
                 }
             }
