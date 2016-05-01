@@ -215,7 +215,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * Refresh accesstoken.
      * 
      */
-    service.refresh = function(){
+    service.refresh = function(auto_refresh){
         
         if(!service.getSemaphore()){
             //refresh already in progress
@@ -276,9 +276,14 @@ angular.module('oauth.accessToken', ['ngStorage'])
 
         }).error(function(error_str) {
             console.log('refresh failed', error_str);
-            service.destroy();
-            httpBuffer.rejectAll('failed: '+ error_str);
-            $rootScope.$broadcast('oauth:logout');
+            if(!auto_refresh){
+                service.destroy();
+                httpBuffer.rejectAll('failed: '+ error_str);
+                $rootScope.$broadcast('oauth:logout');
+            }else{
+                //auto refresh failed
+                //leave refresh for user triggered action
+            }
         });
         
     };
@@ -461,7 +466,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             if (time <= 60000){
                 //if expired or expires within 60 sec
                 setevent = false;
-                service.refresh();
+                service.refresh(true);
                 $rootScope.$broadcast('oauth:expired', service.token);
             }
         }
@@ -470,7 +475,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             var time = (new Date(service.token.expires_at))-(new Date());
             if (time){
                 $interval(function(){
-                    service.refresh();
+                    service.refresh(true);
                     $rootScope.$broadcast('oauth:expired', service.token);
                 }, time, 1);
             }
