@@ -256,9 +256,6 @@ angular.module('oauth.accessToken', ['ngStorage'])
 
             if (new_tokens) {
                 var updater_fun = function(config){
-                    var appendChar = (config.url.indexOf('?') == -1) ? '?' : '&';
-                    //config.url += appendChar + "test=1";
-                    
                     angular.extend(config.headers, service.getAuthHeader());
                     
                     return config;
@@ -283,6 +280,8 @@ angular.module('oauth.accessToken', ['ngStorage'])
             }else{
                 //auto refresh failed
                 //leave refresh for user triggered action
+                service.setSemaphore(true);
+                
             }
         });
         
