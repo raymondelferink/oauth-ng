@@ -19,7 +19,7 @@ angular.module('oauth', [
 
 angular.module('oauth.accessToken', ['ngStorage'])
 
-.factory('AccessToken', function($rootScope, $location, $localStorage, $sessionStorage, $interval, $injector, httpBuffer){
+.factory('AccessToken', function($rootScope, $location, $localStorage, $sessionStorage, $timeout, $injector, httpBuffer){
     
     var service = {
             token: null,
@@ -452,6 +452,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
     /**
      * Set the access token expiration date (useful for refresh logics)
      */
+    var timeoutCancel = false;
     var setExpiresAt = function(setevent){
         if (service.token && !service.token.expires_at){
             
@@ -460,23 +461,20 @@ angular.module('oauth.accessToken', ['ngStorage'])
             service.token.expires_at = expires_at;
             
             
-        } else if (service.token){
-            var time = (new Date(service.token.expires_at))-(new Date());
-            if (time <= 60000){
-                //if expired or expires within 60 sec
-                setevent = false;
-                service.refresh(true);
-                $rootScope.$broadcast('oauth:expired', service.token);
-            }
+        } else if (!service.token){
+            setevent = false;
         }
         
         if (setevent){
             var time = (new Date(service.token.expires_at))-(new Date());
             if (time){
-                $interval(function(){
+                if(timeoutCancel){
+                    $timeout.cancel(timeoutCancel);
+                }
+                timeoutCancel = $timeout(function(){
                     service.refresh(true);
                     $rootScope.$broadcast('oauth:expired', service.token);
-                }, time, 1);
+                }, time);
             }
         }
     };
