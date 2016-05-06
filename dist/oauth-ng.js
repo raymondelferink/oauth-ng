@@ -547,7 +547,7 @@ angular.module('oauth.interceptor', [])
         var service = {};
         
         service.responseError = function (response) {
-            if (response.status === 401 && !response.config.retry) {
+            if (response.status === 401 && !(response.config && response.config.retry)) {
                 var refresh_url = AccessToken.getRefreshUrl();
                 //The refresh_url will be empty if there is no refresh key available
                 //In that case there is no need at all to even try to do a refresh                
@@ -576,7 +576,7 @@ angular.module('oauth.interceptor', [])
                        ' longer logged in and no refresh token was found .');
                 }
             }
-            if (response.config.retry){
+            if (response.config && response.config.retry){
                 console.log('The request has failed a second time. Rejected now.');
             }
             return $q.reject(response);
