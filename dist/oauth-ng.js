@@ -75,7 +75,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
     };
     
     service.packState = function(){
-        if(CryptoJS){
+        if (CryptoJS){
             var obj = {
                 state: this.getState()
             };
@@ -111,7 +111,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
     };
     
     service.getAuthUrl = function(){
-        return this.auth_url + ((this.auth_url.indexOf('?') == -1)? '?' : '&') + 'state=' + this.packState();
+        return this.auth_url + ((this.auth_url.indexOf('?') === -1)? '?' : '&') + 'state=' + this.packState();
         
     };
     
