@@ -584,6 +584,9 @@ angular.module('oauth.interceptor', [])
         };
         
         service.request = function (config) {
+            if(config.notoken){
+                return config;
+            }
             if (AccessToken.getSemaphore() || config.is_refresh){
                if(!config.headers) config.headers = {};
                 angular.extend(config.headers, AccessToken.getAuthHeader());
