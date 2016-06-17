@@ -806,11 +806,14 @@ angular.module('oauth.directive', [])
       $rootScope.$broadcast('oauth:denied');
     };
     
-    var redraw = function(){
+    var redraw = function(init_profile){
         // Update the directive rendering on logout
         initView();
-        // Update profile
-        initProfile(scope);
+        
+        if(init_profile){
+            // Update profile
+            initProfile(scope);
+        }
     };
 
     // Updates the template at runtime
@@ -820,11 +823,11 @@ angular.module('oauth.directive', [])
     });
     
     scope.$on('oauth:refresh', function(){
-        redraw();
+        redraw(true);
     });
 
     scope.$on('$routeChangeSuccess', function () {
-        redraw();
+        redraw(false);
     });
   };
 
