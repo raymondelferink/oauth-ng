@@ -58,6 +58,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             this.state = (params.state) ? params.state : $location.absUrl();
             this.encrypt = (params.encrypt)?true:false;
             this.tokenIssuer = (params.tokenIssuer)?params.tokenIssuer:'';
+            setTokenIssuerInSession();
         }
         this.setTokenFromString($location.hash());
         
@@ -397,6 +398,14 @@ angular.module('oauth.accessToken', ['ngStorage'])
      * @returns {*|{}}
      */
     var setToken = function(params){
+        if(params.tokenIssuer){
+            service.tokenIssuer = params.tokenIssuer;
+            delete params.tokenIssuer;
+        } else {
+            service.tokenIssuer = '';
+        }
+        setTokenIssuerInSession();
+        
         params = filterParams(params);
         service.token = service.token || {};    // init the token
         angular.extend(service.token, params);  // set the access token params
@@ -439,9 +448,19 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if($localStorage.token){
             var params = $localStorage.token;
             params.expires_at = new Date(params.expires_at);
+            params.tokenIssuer = getTokenIssuerFromSession();
             setToken(params);
         }
     };
+    
+    var setTokenIssuerInSession = function(){
+        $localStorage.token = service.token;
+    };
+    
+    var getTokenIssuerFromSession = function(){
+        return ($localStorage.token_issuer)?$localStorage.token_issuer:'';
+    };
+
     
     var setSemaphoreInSession = function(sem){
         $localStorage.refresh_semaphore = sem;
