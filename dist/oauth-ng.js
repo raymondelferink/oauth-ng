@@ -23,6 +23,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
     
     var service = {
             token: null,
+            token_type: '',
             auth_url: '',
             refresh_url: '',
             state: '',
@@ -56,6 +57,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             this.setRefreshUrl(params);
             this.state = (params.state) ? params.state : $location.absUrl();
             this.encrypt = (params.encrypt)?true:false;
+            this.token_type = (params.token_type)?params.token_type:'';
         }
         this.setTokenFromString($location.hash());
         
@@ -161,8 +163,12 @@ angular.module('oauth.accessToken', ['ngStorage'])
     
     service.getAuthHeader = function(){
         if (this.token){
+            var token = this.token.access_token;
+            if(this.token_type){
+                token = this.token_type + ':' + this.token.access_token;
+            }
             return {
-                Authorization : 'Bearer ' + this.token.access_token
+                Authorization : 'Bearer ' + token
             };
         } else {
             return {};
@@ -728,6 +734,7 @@ angular.module('oauth.directive', [])
       scope.accessType    = scope.accessType    || undefined;
       scope.approvalPrompt = (scope.approvalPrompt === 'force')?true:false;
       scope.encrypt       = scope.encrypt       || false;
+      scope.token_type    = scope.token_type       || '';
       
     };
 
