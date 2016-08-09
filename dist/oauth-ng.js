@@ -454,11 +454,11 @@ angular.module('oauth.accessToken', ['ngStorage'])
     };
     
     var setTokenIssuerInSession = function(){
-        $localStorage.token = service.token;
+        $localStorage.tokenIssuer = service.tokenIssuer;
     };
     
     var getTokenIssuerFromSession = function(){
-        return ($localStorage.token_issuer)?$localStorage.token_issuer:'';
+        return ($localStorage.tokenIssuer)?$localStorage.tokenIssuer:'';
     };
 
     
