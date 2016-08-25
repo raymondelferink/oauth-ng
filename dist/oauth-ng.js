@@ -565,8 +565,8 @@ angular.module('oauth.profile', [])
 
 angular.module('oauth.interceptor', [])
         
-.factory('ExpiredInterceptor', ['$q', 'AccessToken', 'httpBuffer',
-    function ($q, AccessToken, httpBuffer) {
+.factory('ExpiredInterceptor', ['$q', 'AccessToken', 'httpBuffer', '$rootScope',
+    function ($q, AccessToken, httpBuffer, $rootScope) {
 
         var service = {};
         
@@ -598,6 +598,9 @@ angular.module('oauth.interceptor', [])
                 } else {
                     console.log('The request was denied because the user was no'+
                        ' longer logged in and no refresh token was found .');
+                    AccessToken.destroy();
+                    $rootScope.$broadcast('oauth:logout');
+                    httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
                 }
             }
             if (response.config && response.config.retry){
