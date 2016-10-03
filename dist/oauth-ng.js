@@ -490,8 +490,10 @@ angular.module('oauth.accessToken', ['ngStorage'])
         }
         
         if (setevent){
+            //only set timeout for future expire times to avoid issues 
+            //with missing refresh_url.
             var time = (new Date(service.token.expires_at))-(new Date());
-            if (time){
+            if (time && time > 0){
                 if(timeoutCancel){
                     $timeout.cancel(timeoutCancel);
                 }
