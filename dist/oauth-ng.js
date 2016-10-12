@@ -604,6 +604,9 @@ angular.module('oauth.interceptor', [])
                     $rootScope.$broadcast('oauth:logout');
                     httpBuffer.rejectAll('Refresh failed: no new tokens retrieved, probably erroneous output from refresh server');
                 }
+            } else if (response.status === 503){
+                //server is in maintenance
+                $rootScope.$broadcast('oauth:maintenance');
             }
             if (response.config && response.config.retry){
                 console.log('The request has failed a second time. Rejected now.');
