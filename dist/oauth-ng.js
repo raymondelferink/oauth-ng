@@ -548,6 +548,9 @@ angular.module('oauth.profile', [])
     promise.success(function(response) {
         profile = response;
         $rootScope.$broadcast('oauth:profile', profile);
+    }).error(function(response){
+        profile = null;
+        $rootScope.$broadcast('oauth:profile', profile);
     });
     return promise;
   };
