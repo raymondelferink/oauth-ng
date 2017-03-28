@@ -57,7 +57,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
             this.setRefreshUrl(params);
             this.state = (params.state) ? params.state : $location.absUrl();
             this.encrypt = (params.encrypt)?true:false;
-            this.tokenIssuer = (params.tokenIssuer)?params.tokenIssuer:'';
+//            this.tokenIssuer = (params.tokenIssuer)?params.tokenIssuer:'';
         }
         this.setTokenFromString($location.hash());
         
@@ -162,6 +162,9 @@ angular.module('oauth.accessToken', ['ngStorage'])
     };
     
     service.getAuthHeader = function(){
+        if(!this.token){
+            this.set();
+        }
         if (this.token){
             var token = this.token.access_token;
             if(this.tokenIssuer){
