@@ -28,7 +28,8 @@ angular.module('oauth.accessToken', ['ngStorage'])
             refresh_url: '',
             state: '',
             encrypt: false,
-            refresh_semaphore: true
+            refresh_semaphore: true,
+            manipulate_config_cb: false
         },
         oAuth2HashTokens = [ 
             ////per http://tools.ietf.org/html/rfc6749#section-4.2.2
@@ -628,6 +629,9 @@ angular.module('oauth.interceptor', [])
             if (AccessToken.getSemaphore() || config.is_refresh){
                if(!config.headers) config.headers = {};
                 angular.extend(config.headers, AccessToken.getAuthHeader());
+                if(AccessToken.manipulate_config_cb){
+                    config = AccessToken.manipulate_config_cb(config);
+                }
                 return config;
             } else {
                 var deferred = $q.defer();
