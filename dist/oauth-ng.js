@@ -367,7 +367,7 @@ angular.module('oauth.accessToken', ['ngStorage'])
         if (!prefix) {
             prefix = '';
         }
-        if (!$sessionStorage.encrypt_key) {
+        if (!$localStorage.encrypt_key) {
             var encrypt_key = '';
             var key_length = 20;
             var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -375,13 +375,13 @@ angular.module('oauth.accessToken', ['ngStorage'])
             for (i = 0; i < key_length ;i++) {
                 encrypt_key += chars[Math.round(Math.random() * 25)];
             }
-            $sessionStorage.encrypt_key = prefix+encrypt_key;
+            $localStorage.encrypt_key = prefix+encrypt_key;
         }
-        return $sessionStorage.encrypt_key;
+        return $localStorage.encrypt_key;
     };
     
     service.deleteEncryptionKey = function(){
-        delete $sessionStorage.encrypt_key;
+        delete $localStorage.encrypt_key;
     }
     
    
